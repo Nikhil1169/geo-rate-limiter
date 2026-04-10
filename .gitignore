@@ -1,0 +1,28 @@
+# Go
+*.exe
+*.test
+*.out
+vendor/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+simulator/population.pkl
+
+# Editors
+.idea/
+.vscode/
+*.swp
+
+# Agent runtime artifacts
+agent/decisions.jsonl
+
+# Env / secrets
+.env
+.env.local
+
+# Local screenshots / browser automation artifacts
+*.png
+.playwright-mcp/
