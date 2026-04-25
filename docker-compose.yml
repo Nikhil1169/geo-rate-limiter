@@ -1,0 +1,41 @@
+version: "3.9"
+
+services:
+  redis-us:
+    image: redis:7-alpine
+    container_name: redis-us
+    ports: ["6379:6379"]
+    command: ["redis-server", "--appendonly", "no"]
+
+  redis-eu:
+    image: redis:7-alpine
+    container_name: redis-eu
+    ports: ["6380:6379"]
+    command: ["redis-server", "--appendonly", "no"]
+
+  redis-asia:
+    image: redis:7-alpine
+    container_name: redis-asia
+    ports: ["6381:6379"]
+    command: ["redis-server", "--appendonly", "no"]
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: prometheus
+    ports: ["9090:9090"]
+    volumes:
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: grafana
+    ports: ["3000:3000"]
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+
+networks:
+  default:
+    name: georl_net
