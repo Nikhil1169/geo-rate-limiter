@@ -69,4 +69,4 @@ rl_policy_version{region, tier}                        gauge
 7. Don't refactor untouched code unless I explicitly ask.
 
 ## Phase
-Currently on: Phase 2 — Gateway with token bucket. Don't jump ahead.
+Currently on: Phase 3 — G-Counter CRDT cross-region sync. Don't jump ahead.
