@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   redis-us:
     image: redis:7-alpine
@@ -19,6 +17,36 @@ services:
     ports: ["6381:6379"]
     command: ["redis-server", "--appendonly", "no"]
 
+  gateway-us:
+    build: ./gateway
+    container_name: gateway-us
+    ports: ["8081:8080"]
+    environment:
+      - REGION=us
+      - REDIS_ADDR=redis-us:6379
+      - GIN_MODE=release
+    depends_on: [redis-us]
+
+  gateway-eu:
+    build: ./gateway
+    container_name: gateway-eu
+    ports: ["8082:8080"]
+    environment:
+      - REGION=eu
+      - REDIS_ADDR=redis-eu:6379
+      - GIN_MODE=release
+    depends_on: [redis-eu]
+
+  gateway-asia:
+    build: ./gateway
+    container_name: gateway-asia
+    ports: ["8083:8080"]
+    environment:
+      - REGION=asia
+      - REDIS_ADDR=redis-asia:6379
+      - GIN_MODE=release
+    depends_on: [redis-asia]
+
   prometheus:
     image: prom/prometheus:v2.54.1
     container_name: prometheus
@@ -33,8 +61,7 @@ services:
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
-    depends_on:
-      - prometheus
+    depends_on: [prometheus]
 
 networks:
   default:
