@@ -47,6 +47,63 @@ services:
       - GIN_MODE=release
     depends_on: [redis-asia]
 
+  sync-us:
+    build:
+      context: ./sync
+      dockerfile: Dockerfile
+    container_name: sync-us
+    environment:
+      REGION: us
+      LOCAL_REDIS_ADDR: redis-us:6379
+      PEER_REDIS_EU_ADDR: redis-eu:6379
+      PEER_REDIS_ASIA_ADDR: redis-asia:6379
+      ADMIN_PORT: "8001"
+      METRICS_PORT: "9101"
+      RECONCILE_INTERVAL_SEC: "30"
+    ports:
+      - "8011:8001"
+      - "9111:9101"
+    depends_on: [redis-us, redis-eu, redis-asia]
+    restart: on-failure
+
+  sync-eu:
+    build:
+      context: ./sync
+      dockerfile: Dockerfile
+    container_name: sync-eu
+    environment:
+      REGION: eu
+      LOCAL_REDIS_ADDR: redis-eu:6379
+      PEER_REDIS_US_ADDR: redis-us:6379
+      PEER_REDIS_ASIA_ADDR: redis-asia:6379
+      ADMIN_PORT: "8001"
+      METRICS_PORT: "9101"
+      RECONCILE_INTERVAL_SEC: "30"
+    ports:
+      - "8012:8001"
+      - "9112:9101"
+    depends_on: [redis-us, redis-eu, redis-asia]
+    restart: on-failure
+
+  sync-asia:
+    build:
+      context: ./sync
+      dockerfile: Dockerfile
+    container_name: sync-asia
+    environment:
+      REGION: asia
+      LOCAL_REDIS_ADDR: redis-asia:6379
+      PEER_REDIS_US_ADDR: redis-us:6379
+      PEER_REDIS_EU_ADDR: redis-eu:6379
+      ADMIN_PORT: "8001"
+      METRICS_PORT: "9101"
+      RECONCILE_INTERVAL_SEC: "30"
+    ports:
+      - "8013:8001"
+      - "9113:9101"
+    depends_on: [redis-us, redis-eu, redis-asia]
+    restart: on-failure
+
   prometheus:
     image: prom/prometheus:v2.54.1
     container_name: prometheus

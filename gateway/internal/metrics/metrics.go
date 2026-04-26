@@ -25,3 +25,24 @@ var DecisionDuration = promauto.NewHistogramVec(
 	},
 	[]string{"region"},
 )
+
+// CounterValue exposes the per-user global request count — Contract 3.
+// Emitted only for users whose global sum exceeds 50% of their tier cap
+// to bound Prometheus cardinality. Phase 4's agent reads this to detect spikes.
+var CounterValue = promauto.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "rl_counter_value",
+		Help: "Current global request count for a user (sampled: only emitted at >50% of cap).",
+	},
+	[]string{"region", "tier", "user_id"},
+)
+
+// PolicyVersion tracks the active policy generation per region+tier — Contract 3.
+// 0 = static baseline; positive integers are agent-written sequence numbers (Phase 4).
+var PolicyVersion = promauto.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "rl_policy_version",
+		Help: "Active policy version per region and tier (0 = static baseline).",
+	},
+	[]string{"region", "tier"},
+)

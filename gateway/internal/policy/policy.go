@@ -6,15 +6,16 @@ import "fmt"
 // PolicyID uses pol_static_* to distinguish hardcoded baselines from
 // agent-written policies (pol_<timestamp>_<seq>) that come in Phase 4.
 type Policy struct {
-	Limit    int
-	Burst    int
-	PolicyID string
+	Limit       int
+	GlobalLimit int // Contract 4: global_limit_per_minute — cap across all regions combined
+	Burst       int
+	PolicyID    string
 }
 
 var static = map[string]Policy{
-	"free":     {Limit: 10, Burst: 5, PolicyID: "pol_static_free"},
-	"premium":  {Limit: 100, Burst: 20, PolicyID: "pol_static_premium"},
-	"internal": {Limit: 1000, Burst: 100, PolicyID: "pol_static_internal"},
+	"free":     {Limit: 10, GlobalLimit: 10, Burst: 5, PolicyID: "pol_static_free"},
+	"premium":  {Limit: 100, GlobalLimit: 100, Burst: 20, PolicyID: "pol_static_premium"},
+	"internal": {Limit: 1000, GlobalLimit: 1000, Burst: 100, PolicyID: "pol_static_internal"},
 }
 
 // Lookup returns the policy for the given tier, or an error if the tier is unknown.
