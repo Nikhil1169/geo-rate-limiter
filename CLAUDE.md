@@ -68,5 +68,9 @@ rl_policy_version{region, tier}                        gauge
 6. Commit after each phase with conventional commits (feat:, fix:, test:, docs:).
 7. Don't refactor untouched code unless I explicitly ask.
 
+## Completed phases (do not re-do these)
+- Phase 1 ✓ — Infrastructure scaffolding (docker-compose, Redis ×3, Prometheus, Grafana)
+- Phase 2 ✓ — Gateway with atomic token bucket (Lua script, 3 regional gateways, Prometheus metrics)
+
 ## Phase
 Currently on: Phase 3 — G-Counter CRDT cross-region sync. Don't jump ahead.
