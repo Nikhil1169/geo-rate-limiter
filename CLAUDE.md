@@ -69,8 +69,17 @@ rl_policy_version{region, tier}                        gauge
 7. Don't refactor untouched code unless I explicitly ask.
 
 ## Completed phases (do not re-do these)
-- Phase 1 ✓ — Infrastructure scaffolding (docker-compose, Redis ×3, Prometheus, Grafana)
-- Phase 2 ✓ — Gateway with atomic token bucket (Lua script, 3 regional gateways, Prometheus metrics)
+- Phase 1 ✓ — Infrastructure scaffolding
+- Phase 2 ✓ — Gateway with atomic token bucket
+- Phase 3 ✓ — G-Counter CRDT cross-region sync and global enforcement
 
 ## Phase
-Currently on: Phase 3 — G-Counter CRDT cross-region sync. Don't jump ahead.
+Currently on: Phase 4 — Sliding window algorithm and policy plane. Don't jump ahead.
+Phase 3 sync files exist and are COMPLETE. Do not revisit them.
+
+## Environment note
+Host machine has a local Homebrew Redis on port 6379.
+ALWAYS use `docker exec redis-us redis-cli` to target Docker Redis.
+ALWAYS run cross-region tests without sleep between US and EU requests
+— the rate limit window is 60 seconds and tests that pause mid-way
+will hit a new window and produce false positives.
