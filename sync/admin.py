@@ -25,6 +25,8 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
+from sync.state import PARTITIONS
+
 _VALID_REGIONS = frozenset({"us", "eu", "asia"})
 
 
@@ -43,13 +45,6 @@ class PartitionRequest(BaseModel):
 
 
 def build_app() -> FastAPI:
-    """Return the FastAPI application.
-
-    Called once from sync_service.run() after the event loop has started.
-    Imports PARTITIONS here (not at module level) to avoid a circular import.
-    """
-    from sync.sync_service import PARTITIONS  # noqa: PLC0415
-
     app = FastAPI(title="sync-admin", version="1.0.0")
 
     @app.post("/admin/partition")

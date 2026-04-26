@@ -23,7 +23,8 @@ import fakeredis
 import pytest
 
 from sync.counter import RegionalCounter
-from sync.sync_service import CHANNEL, PARTITIONS, _subscribe
+from sync.state import PARTITIONS
+from sync.sync_service import CHANNEL, _subscribe
 
 TIER = "free"
 

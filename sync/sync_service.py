@@ -33,6 +33,7 @@ import redis.asyncio as aioredis
 from prometheus_client import Gauge, start_http_server
 
 from sync.counter import REGIONS, RegionalCounter
+from sync.state import PARTITIONS
 
 log = logging.getLogger(__name__)
 
@@ -47,15 +48,6 @@ _lag_gauge = Gauge(
     "Replication lag: time between source publish and this region's apply",
     ["from_region", "to_region"],
 )
-
-# ---------------------------------------------------------------------------
-# Shared mutable partition state — admin.py modifies this at runtime.
-# A tuple (from_region, to_region) present here means messages from
-# from_region are silently dropped before being applied to this region.
-# ---------------------------------------------------------------------------
-
-PARTITIONS: set[tuple[str, str]] = set()
-
 
 # ---------------------------------------------------------------------------
 # Internal helpers

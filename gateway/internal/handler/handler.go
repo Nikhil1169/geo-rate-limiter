@@ -95,56 +95,63 @@ func check(d Deps) gin.HandlerFunc {
 
 		metrics.DecisionDuration.WithLabelValues(d.Region).Observe(elapsed.Seconds())
 
-		// Phase 3: cross-region global cap check.
-		// Only runs when the local bucket allowed the request and Rdb is wired.
-		// Reads the G-Counter from LOCAL Redis (kept up-to-date by the sync
-		// service) — no cross-region call on the hot path.
-		if err == nil && allowed && d.Rdb != nil {
+		// Phase 3: G-Counter increment + global cap check.
+		// Runs for every request that reached the rate-limit decision
+		// (region-validated, Rdb wired), regardless of local bucket outcome.
+		// HINCRBY happens BEFORE HGetAll so this region's slot is included
+		// in the sum — prevents peers from seeing a stale sum and allowing
+		// requests that should be denied globally.
+		if err == nil && d.Rdb != nil {
 			windowID := time.Now().Unix() / 60
 			globalKey := fmt.Sprintf("rl:global:%s:%s:%d", req.Tier, req.UserID, windowID)
 			ctx := c.Request.Context()
 
-			rawSlots, hErr := d.Rdb.HGetAll(ctx, globalKey).Result()
-			if hErr != nil {
-				log.Printf("[warn] global HGetAll %s: %v — falling back to local decision", globalKey, hErr)
+			// Always increment — tracks true global demand, not just locally-allowed requests.
+			newSlot, incrErr := d.Rdb.HIncrBy(ctx, globalKey, d.Region, 1).Result()
+			if incrErr != nil {
+				log.Printf("[warn] global HIncrBy %s: %v — skipping global check", globalKey, incrErr)
 			} else {
-				sum := 0
-				for _, v := range rawSlots {
-					if n, err2 := strconv.Atoi(v); err2 == nil {
-						sum += n
-					}
+				d.Rdb.Expire(ctx, globalKey, 120*time.Second)
+
+				// Publish absolute slot value so peer sync services can merge.
+				if payload, mErr := json.Marshal(syncMessage{
+					Tier:     req.Tier,
+					UserID:   req.UserID,
+					WindowID: windowID,
+					Region:   d.Region,
+					Value:    newSlot,
+					TsMs:     time.Now().UnixMilli(),
+				}); mErr == nil {
+					d.Rdb.Publish(ctx, syncChannel, string(payload))
 				}
 
-				if sum >= pol.GlobalLimit {
-					// Global cap exceeded: override the local-allowed decision.
-					allowed = false
-					remaining = 0
-					retryMs = int((windowID+1)*60*1000 - time.Now().UnixMilli())
-					if retryMs < 0 {
-						retryMs = 0
-					}
+				// Read global sum (includes this request's increment).
+				rawSlots, hErr := d.Rdb.HGetAll(ctx, globalKey).Result()
+				if hErr != nil {
+					log.Printf("[warn] global HGetAll %s: %v — skipping global check", globalKey, hErr)
 				} else {
-					// Consume one slot in the G-Counter and notify peer sync services.
-					newSlot, incrErr := d.Rdb.HIncrBy(ctx, globalKey, d.Region, 1).Result()
-					if incrErr == nil {
-						d.Rdb.Expire(ctx, globalKey, 120*time.Second)
-						if payload, mErr := json.Marshal(syncMessage{
-							Tier:     req.Tier,
-							UserID:   req.UserID,
-							WindowID: windowID,
-							Region:   d.Region,
-							Value:    newSlot,
-							TsMs:     time.Now().UnixMilli(),
-						}); mErr == nil {
-							d.Rdb.Publish(ctx, syncChannel, string(payload))
+					sum := 0
+					for _, v := range rawSlots {
+						if n, err2 := strconv.Atoi(v); err2 == nil {
+							sum += n
 						}
-						// Emit per-user gauge only for users at >50% of the global cap
-						// to bound Prometheus cardinality (top-N approximation).
-						if newSum := sum + 1; newSum*2 >= pol.GlobalLimit {
-							metrics.CounterValue.WithLabelValues(
-								d.Region, req.Tier, req.UserID,
-							).Set(float64(newSum))
+					}
+
+					if sum > pol.GlobalLimit {
+						// Global cap exceeded: override regardless of local bucket decision.
+						allowed = false
+						remaining = 0
+						retryMs = int((windowID+1)*60*1000 - time.Now().UnixMilli())
+						if retryMs < 0 {
+							retryMs = 0
 						}
+					}
+
+					// Emit per-user gauge for users at >50% of global cap.
+					if sum*2 >= pol.GlobalLimit {
+						metrics.CounterValue.WithLabelValues(
+							d.Region, req.Tier, req.UserID,
+						).Set(float64(sum))
 					}
 				}
 			}
