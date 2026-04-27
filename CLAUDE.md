@@ -72,10 +72,10 @@ rl_policy_version{region, tier}                        gauge
 - Phase 1 ✓ — Infrastructure scaffolding
 - Phase 2 ✓ — Gateway with atomic token bucket
 - Phase 3 ✓ — G-Counter CRDT cross-region sync and global enforcement
+- Phase 4 ✓ — Sliding window algorithm, dynamic policy plane, sync NOSCRIPT fix
 
 ## Phase
-Currently on: Phase 4 — Sliding window algorithm and policy plane. Don't jump ahead.
-Phase 3 sync files exist and are COMPLETE. Do not revisit them.
+Currently on: Phase 5 — Traffic simulator. Don't jump ahead.
 
 ## Environment note
 Host machine has a local Homebrew Redis on port 6379.
