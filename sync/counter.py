@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import pathlib
 
+from redis.exceptions import NoScriptError
+
 REGIONS: tuple[str, ...] = ("us", "eu", "asia")
 _LUA_PATH = pathlib.Path(__file__).parent / "merge.lua"
 _TTL = 120  # seconds — one extra window of grace for late arrivals
@@ -25,10 +27,11 @@ class RegionalCounter:
     directly, because the Lua script must be loaded first.
     """
 
-    def __init__(self, redis, region: str, sha: str) -> None:
+    def __init__(self, redis, region: str, sha: str, script: str) -> None:
         self._r = redis
         self.region = region
-        self._sha = sha  # EVALSHA handle for merge.lua
+        self._sha = sha       # EVALSHA handle for merge.lua
+        self._script = script # kept so we can reload on NOSCRIPT
 
     # ------------------------------------------------------------------
     # Factory
@@ -37,8 +40,9 @@ class RegionalCounter:
     @classmethod
     async def create(cls, redis, region: str) -> "RegionalCounter":
         """Load merge.lua into Redis and return a ready counter."""
-        sha: str = await redis.script_load(_LUA_PATH.read_text())
-        return cls(redis, region, sha)
+        script: str = _LUA_PATH.read_text()
+        sha: str = await redis.script_load(script)
+        return cls(redis, region, sha, script)
 
     # ------------------------------------------------------------------
     # Writes
@@ -66,16 +70,12 @@ class RegionalCounter:
         value is already >= remote_value.
         """
         key = _key(tier, user_id, window_id)
-        return int(
-            await self._r.evalsha(
-                self._sha,
-                1,        # numkeys
-                key,      # KEYS[1]
-                remote_region,          # ARGV[1]
-                str(remote_value),      # ARGV[2]
-                str(_TTL),              # ARGV[3]
-            )
-        )
+        args = (1, key, remote_region, str(remote_value), str(_TTL))
+        try:
+            return int(await self._r.evalsha(self._sha, *args))
+        except NoScriptError:
+            self._sha = await self._r.script_load(self._script)
+            return int(await self._r.evalsha(self._sha, *args))
 
     # ------------------------------------------------------------------
     # Reads
