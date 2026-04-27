@@ -5,11 +5,13 @@ import (
 	"flag"
 	"log"
 	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/nikhil/geo-rate-limiter/gateway/internal/handler"
 	"github.com/nikhil/geo-rate-limiter/gateway/internal/limiter"
 	"github.com/nikhil/geo-rate-limiter/gateway/internal/metrics"
+	"github.com/nikhil/geo-rate-limiter/gateway/internal/override"
 	"github.com/nikhil/geo-rate-limiter/gateway/internal/policy"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
@@ -36,23 +38,42 @@ func main() {
 	}
 	log.Printf("connected to redis at %s", *redisAddr)
 
-	lim := limiter.NewTokenBucket(rdb)
-	if err := lim.Load(ctx); err != nil {
+	// Build and load both limiters.
+	tb := limiter.NewTokenBucket(rdb)
+	if err := tb.Load(ctx); err != nil {
 		log.Fatalf("load token bucket script: %v", err)
 	}
-	log.Printf("token bucket script loaded, region=%s", *region)
+	sw := limiter.NewSlidingWindow(rdb)
+	if err := sw.Load(ctx); err != nil {
+		log.Fatalf("load sliding window script: %v", err)
+	}
+	log.Printf("limiter scripts loaded, region=%s", *region)
 
 	// Initialise policy-version gauge to 0 (static baseline) for each tier.
-	// Phase 4's agent will increment this when it writes a new policy.
 	for _, tier := range []string{"free", "premium", "internal"} {
-		if _, err := policy.Lookup(tier); err == nil {
-			metrics.PolicyVersion.WithLabelValues(*region, tier).Set(0)
-		}
+		metrics.PolicyVersion.WithLabelValues(*region, tier).Set(0)
 	}
+
+	// Start the dynamic policy store (polls Redis every 5 s).
+	pStore := policy.NewStore(rdb, *region)
+	pStore.Start(ctx)
+	log.Printf("policy store started, region=%s", *region)
+
+	// Start the per-user override cache (5 s TTL, no background goroutine needed).
+	ovCache := override.New(rdb, 5*time.Second)
 
 	r := gin.New()
 	r.Use(gin.Recovery())
-	handler.Register(r, handler.Deps{Limiter: lim, Region: *region, Rdb: rdb})
+	handler.Register(r, handler.Deps{
+		Limiters: map[string]limiter.Limiter{
+			"token_bucket":   tb,
+			"sliding_window": sw,
+		},
+		Region:      *region,
+		Rdb:         rdb,
+		PolicyStore: pStore,
+		Overrides:   ovCache,
+	})
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	log.Printf("listening on %s", *listen)

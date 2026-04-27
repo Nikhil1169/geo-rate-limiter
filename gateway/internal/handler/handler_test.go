@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/nikhil/geo-rate-limiter/gateway/internal/handler"
+	"github.com/nikhil/geo-rate-limiter/gateway/internal/limiter"
 )
 
 func init() {
@@ -30,6 +31,20 @@ func (f *fakeLimiter) Check(_ context.Context, key string, _, _ int) (bool, int,
 	return f.allowed, f.remaining, f.retryAfterMs, f.err
 }
 
+// fakeDepsWith registers fl under all algorithm keys so tests that don't
+// exercise algorithm selection work without change. PolicyStore and Overrides
+// are left nil — the handler falls back to static policy.Lookup and skips
+// overrides when these are nil.
+func fakeDepsWith(fl *fakeLimiter, region string) handler.Deps {
+	return handler.Deps{
+		Limiters: map[string]limiter.Limiter{
+			"token_bucket":   fl,
+			"sliding_window": fl,
+		},
+		Region: region,
+	}
+}
+
 func newRouter(d handler.Deps) *gin.Engine {
 	r := gin.New()
 	handler.Register(r, d)
@@ -47,7 +62,7 @@ func post(r *gin.Engine, body any) *httptest.ResponseRecorder {
 
 func TestCheck_AllowedResponse(t *testing.T) {
 	fl := &fakeLimiter{allowed: true, remaining: 4}
-	r := newRouter(handler.Deps{Limiter: fl, Region: "us"})
+	r := newRouter(fakeDepsWith(fl, "us"))
 
 	w := post(r, map[string]any{
 		"user_id":  "u1",
@@ -79,7 +94,7 @@ func TestCheck_AllowedResponse(t *testing.T) {
 
 func TestCheck_DeniedResponse(t *testing.T) {
 	fl := &fakeLimiter{allowed: false, remaining: 0, retryAfterMs: 5000}
-	r := newRouter(handler.Deps{Limiter: fl, Region: "us"})
+	r := newRouter(fakeDepsWith(fl, "us"))
 
 	w := post(r, map[string]any{
 		"user_id":  "u1",
@@ -103,7 +118,7 @@ func TestCheck_DeniedResponse(t *testing.T) {
 
 func TestCheck_RedisError_DegradeClosed(t *testing.T) {
 	fl := &fakeLimiter{err: context.DeadlineExceeded}
-	r := newRouter(handler.Deps{Limiter: fl, Region: "us"})
+	r := newRouter(fakeDepsWith(fl, "us"))
 
 	w := post(r, map[string]any{
 		"user_id":  "u1",
@@ -128,7 +143,7 @@ func TestCheck_RedisError_DegradeClosed(t *testing.T) {
 
 func TestCheck_WrongRegion_400(t *testing.T) {
 	fl := &fakeLimiter{allowed: true}
-	r := newRouter(handler.Deps{Limiter: fl, Region: "us"})
+	r := newRouter(fakeDepsWith(fl, "us"))
 
 	w := post(r, map[string]any{
 		"user_id":  "u1",
@@ -144,7 +159,7 @@ func TestCheck_WrongRegion_400(t *testing.T) {
 
 func TestCheck_BadJSON_400(t *testing.T) {
 	fl := &fakeLimiter{allowed: true}
-	r := newRouter(handler.Deps{Limiter: fl, Region: "us"})
+	r := newRouter(fakeDepsWith(fl, "us"))
 
 	req := httptest.NewRequest(http.MethodPost, "/check", bytes.NewBufferString("{invalid"))
 	req.Header.Set("Content-Type", "application/json")
@@ -158,7 +173,7 @@ func TestCheck_BadJSON_400(t *testing.T) {
 
 func TestCheck_UnknownTier_400(t *testing.T) {
 	fl := &fakeLimiter{allowed: true}
-	r := newRouter(handler.Deps{Limiter: fl, Region: "us"})
+	r := newRouter(fakeDepsWith(fl, "us"))
 
 	w := post(r, map[string]any{
 		"user_id":  "u1",
@@ -173,7 +188,7 @@ func TestCheck_UnknownTier_400(t *testing.T) {
 }
 
 func TestHealth(t *testing.T) {
-	r := newRouter(handler.Deps{Limiter: &fakeLimiter{}, Region: "eu"})
+	r := newRouter(fakeDepsWith(&fakeLimiter{}, "eu"))
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
