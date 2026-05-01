@@ -16,6 +16,9 @@ simulator/population.pkl
 .vscode/
 *.swp
 
+# Agent runtime artifacts
+agent/decisions.jsonl
+
 # Env / secrets
 .env
 .env.local
