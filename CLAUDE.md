@@ -75,9 +75,10 @@ rl_policy_version{region, tier}                        gauge
 - Phase 4 ✓ — Sliding window algorithm, dynamic policy plane, sync NOSCRIPT fix
 - Phase 5 ✓ — Traffic simulator with Poisson patterns and predefined scenarios
 - Phase 6 ✓ — Grafana dashboard with auto-provisioning (25 panels, verified live)
+- Phase 7 ✓ — AI traffic agent with predictive policy decisions
 
 ## Phase
-Currently on: Phase 7 — AI traffic agent. Don't jump ahead.
+Currently on: Phase 8 — Failure testing. Don't jump ahead.
 
 ## Environment note
 Host machine has a local Homebrew Redis on port 6379.
