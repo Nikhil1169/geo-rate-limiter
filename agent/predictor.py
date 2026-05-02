@@ -94,17 +94,71 @@ class HoltWintersPredictor(Predictor):
     additive seasonality (seasonal_periods=20, i.e. a 5-minute cycle at
     15-second ticks).
 
-    Requires statsmodels. Implementation pending review of EWMAPredictor.
+    Requires statsmodels >= 0.14. CI bounds are produced via simulation
+    (100 paths) because HoltWintersResults.get_prediction() is unavailable
+    in statsmodels 0.14.x.
     """
 
     name = "holtwinters"
-    MIN_SAMPLES = 40  # 2 × seasonal_periods
+    MIN_SAMPLES = 40    # 2 × seasonal_periods
+    _SEASONAL_PERIODS = 20
+    _CI_REPS = 100      # simulation paths for CI estimation
+
+    def __init__(self) -> None:
+        self._fitted = None  # HoltWintersResultsWrapper or None
+        self._n: int = 0
 
     def fit(self, history: list[tuple[int, float]]) -> None:
-        raise NotImplementedError("HoltWintersPredictor not yet implemented")
+        import numpy as np
+        from statsmodels.tsa.holtwinters import ExponentialSmoothing
+
+        values = [v for _, v in history if v is not None]
+        self._n = len(values)
+        if self._n < self.MIN_SAMPLES:
+            self._fitted = None
+            return
+        series = np.maximum(np.array(values, dtype=float), 1e-6)
+        try:
+            self._fitted = ExponentialSmoothing(
+                series,
+                trend="add",
+                seasonal="add",
+                seasonal_periods=self._SEASONAL_PERIODS,
+            ).fit(optimized=True)
+        except Exception:
+            self._fitted = None
 
     def forecast(self, horizon_seconds: int = 120) -> Forecast | None:
-        raise NotImplementedError("HoltWintersPredictor not yet implemented")
+        import numpy as np
+
+        if self._fitted is None:
+            return None
+        horizon_ticks = max(1, horizon_seconds // 15)
+        try:
+            point_series = self._fitted.forecast(horizon_ticks)
+            point = float(point_series[-1])
+
+            # Simulate forward paths to get a 95% CI on the horizon step.
+            try:
+                sims = self._fitted.simulate(
+                    nsimulations=horizon_ticks,
+                    repetitions=self._CI_REPS,
+                    error="mul",
+                )
+                last_step = sims[-1]  # shape: (CI_REPS,)
+                lower = float(np.percentile(last_step, 2.5))
+                upper = float(np.percentile(last_step, 97.5))
+            except Exception:
+                lower, upper = None, None
+
+            return Forecast(
+                point=max(0.0, point),
+                lower=max(0.0, lower) if lower is not None else None,
+                upper=max(0.0, upper) if upper is not None else None,
+                horizon_seconds=horizon_seconds,
+            )
+        except Exception:
+            return None
 
 
 def build_predictor(name: str) -> Predictor:
