@@ -76,9 +76,10 @@ rl_policy_version{region, tier}                        gauge
 - Phase 5 ✓ — Traffic simulator with Poisson patterns and predefined scenarios
 - Phase 6 ✓ — Grafana dashboard with auto-provisioning (25 panels, verified live)
 - Phase 7 ✓ — AI traffic agent with predictive policy decisions
+- Phase 8 ✓ — Track A (tests) + Track B (failure docs)
 
 ## Phase
-Currently on: Phase 8 — Failure testing. Don't jump ahead.
+Currently on: Phase 9 — Demo prep and final documentation
 
 ## Environment note
 Host machine has a local Homebrew Redis on port 6379.
