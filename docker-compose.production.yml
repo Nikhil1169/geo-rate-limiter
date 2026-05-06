@@ -1,0 +1,202 @@
+services:
+  redis-us:
+    image: redis:7-alpine
+    container_name: redis-us
+    ports: ["6379:6379"]
+    command: ["redis-server", "--appendonly", "no"]
+    networks: [rate-limiter-net]
+
+  redis-eu:
+    image: redis:7-alpine
+    container_name: redis-eu
+    ports: ["6380:6379"]
+    command: ["redis-server", "--appendonly", "no"]
+    networks: [rate-limiter-net]
+
+  redis-asia:
+    image: redis:7-alpine
+    container_name: redis-asia
+    ports: ["6381:6379"]
+    command: ["redis-server", "--appendonly", "no"]
+    networks: [rate-limiter-net]
+
+  gateway-us:
+    build: ./gateway
+    container_name: gateway-us
+    ports: ["8081:8080"]
+    environment:
+      - REGION=us
+      - REDIS_ADDR=redis-us:6379
+      - GIN_MODE=release
+    depends_on: [redis-us]
+    networks: [rate-limiter-net]
+
+  gateway-eu:
+    build: ./gateway
+    container_name: gateway-eu
+    ports: ["8082:8080"]
+    environment:
+      - REGION=eu
+      - REDIS_ADDR=redis-eu:6379
+      - GIN_MODE=release
+    depends_on: [redis-eu]
+    networks: [rate-limiter-net]
+
+  gateway-asia:
+    build: ./gateway
+    container_name: gateway-asia
+    ports: ["8083:8080"]
+    environment:
+      - REGION=asia
+      - REDIS_ADDR=redis-asia:6379
+      - GIN_MODE=release
+    depends_on: [redis-asia]
+    networks: [rate-limiter-net]
+
+  sync-us:
+    build:
+      context: ./sync
+      dockerfile: Dockerfile
+    container_name: sync-us
+    environment:
+      REGION: us
+      LOCAL_REDIS_ADDR: redis-us:6379
+      PEER_REDIS_EU_ADDR: redis-eu:6379
+      PEER_REDIS_ASIA_ADDR: redis-asia:6379
+      ADMIN_PORT: "8001"
+      METRICS_PORT: "9101"
+      RECONCILE_INTERVAL_SEC: "30"
+    ports:
+      - "8011:8001"
+      - "9111:9101"
+    depends_on: [redis-us, redis-eu, redis-asia]
+    restart: on-failure
+    networks: [rate-limiter-net]
+
+  sync-eu:
+    build:
+      context: ./sync
+      dockerfile: Dockerfile
+    container_name: sync-eu
+    environment:
+      REGION: eu
+      LOCAL_REDIS_ADDR: redis-eu:6379
+      PEER_REDIS_US_ADDR: redis-us:6379
+      PEER_REDIS_ASIA_ADDR: redis-asia:6379
+      ADMIN_PORT: "8001"
+      METRICS_PORT: "9101"
+      RECONCILE_INTERVAL_SEC: "30"
+    ports:
+      - "8012:8001"
+      - "9112:9101"
+    depends_on: [redis-us, redis-eu, redis-asia]
+    restart: on-failure
+    networks: [rate-limiter-net]
+
+  sync-asia:
+    build:
+      context: ./sync
+      dockerfile: Dockerfile
+    container_name: sync-asia
+    environment:
+      REGION: asia
+      LOCAL_REDIS_ADDR: redis-asia:6379
+      PEER_REDIS_US_ADDR: redis-us:6379
+      PEER_REDIS_EU_ADDR: redis-eu:6379
+      ADMIN_PORT: "8001"
+      METRICS_PORT: "9101"
+      RECONCILE_INTERVAL_SEC: "30"
+    ports:
+      - "8013:8001"
+      - "9113:9101"
+    depends_on: [redis-us, redis-eu, redis-asia]
+    restart: on-failure
+    networks: [rate-limiter-net]
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: prometheus
+    ports: ["9090:9090"]
+    volumes:
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    # 30s lookback-delta (default 5m) so rl_counter_value gauges from a
+    # prior scenario don't keep appearing as live samples in the next
+    # scenario when the gateway stops emitting for a user. Pairs with
+    # the per-request DeleteLabelValues in gateway/internal/handler for
+    # users who keep sending. See docs/demo-prep.md §5a-H.
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --query.lookback-delta=30s
+    networks: [rate-limiter-net]
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: grafana
+    ports: ["3000:3000"]
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning
+    depends_on: [prometheus]
+    networks: [rate-limiter-net]
+
+  api:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    container_name: api
+    ports: ["5001:5001"]
+    environment:
+      - ENVIRONMENT=production
+      - PROMETHEUS_URL=http://prometheus:9090
+      - REDIS_US_HOST=redis-us
+      - REDIS_US_PORT=6379
+      - REDIS_EU_HOST=redis-eu
+      - REDIS_EU_PORT=6379
+      - REDIS_ASIA_HOST=redis-asia
+      - REDIS_ASIA_PORT=6379
+      - GATEWAY_US_URL=http://gateway-us:8080
+      - GATEWAY_EU_URL=http://gateway-eu:8080
+      - GATEWAY_ASIA_URL=http://gateway-asia:8080
+      - REDIS_US_ADDR=redis-us:6379
+      - REDIS_EU_ADDR=redis-eu:6379
+      - REDIS_ASIA_ADDR=redis-asia:6379
+      - PROM_URL=http://prometheus:9090
+      - API_PORT=5001
+      - CORS_ORIGINS=*
+    depends_on:
+      - prometheus
+      - redis-us
+      - redis-eu
+      - redis-asia
+    networks: [rate-limiter-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  dashboard:
+    image: nginx:alpine
+    container_name: dashboard
+    ports: ["8080:80"]
+    volumes:
+      - ./dashboard.html:/usr/share/nginx/html/index.html:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on: [api]
+    networks: [rate-limiter-net]
+    healthcheck:
+      # nginx listens on IPv4 only; localhost in alpine resolves to IPv6
+      # first, which fails with "connection refused" and leaves the
+      # container marked unhealthy even though the page works fine over
+      # the host port. Use 127.0.0.1 explicitly. See docs/demo-prep.md §5b-F.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  rate-limiter-net:
+    driver: bridge
