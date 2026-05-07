@@ -1,0 +1,39 @@
+# Environment: development | production
+environment: ${ENVIRONMENT:-development}
+
+# Service URLs (Docker service names in production, localhost in dev)
+services:
+  prometheus:
+    url: ${PROMETHEUS_URL:-http://localhost:9090}
+
+  redis:
+    us:
+      host: ${REDIS_US_HOST:-localhost}
+      port: ${REDIS_US_PORT:-6379}
+    eu:
+      host: ${REDIS_EU_HOST:-localhost}
+      port: ${REDIS_EU_PORT:-6380}
+    asia:
+      host: ${REDIS_ASIA_HOST:-localhost}
+      port: ${REDIS_ASIA_PORT:-6381}
+
+  gateways:
+    us: ${GATEWAY_US_URL:-http://localhost:8081}
+    eu: ${GATEWAY_EU_URL:-http://localhost:8082}
+    asia: ${GATEWAY_ASIA_URL:-http://localhost:8083}
+
+# API configuration
+api:
+  host: ${API_HOST:-0.0.0.0}
+  port: ${API_PORT:-5001}
+  cors_origins: ${CORS_ORIGINS:-*}
+
+# Dashboard configuration
+dashboard:
+  api_url: ${DASHBOARD_API_URL:-http://localhost:5001}
+
+# Paths (for subprocess calls)
+paths:
+  simulator: ${SIMULATOR_PATH:-./simulator/main.py}
+  agent: ${AGENT_PATH:-./agent/main.py}
+  seed_policies: ${SEED_POLICIES_PATH:-./tools/seed_policies.py}

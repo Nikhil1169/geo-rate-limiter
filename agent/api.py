@@ -1,22 +1,34 @@
 """
 Dashboard API — Flask backend for the monitoring dashboard.
 
-Endpoints:
-  GET /api/metrics   — Prometheus summary (RPS, allow rate, active users, history)
-  GET /api/decisions — Last 20 agent decisions from decisions.jsonl
-  GET /api/overrides — All override:* keys from all 3 Redis instances
-  GET /api/counters  — rl:global:* slot distribution from all 3 Redis instances
+Read endpoints:
+  GET  /api/metrics              — Prometheus summary (RPS, allow rate, active users, history)
+  GET  /api/decisions            — Last 20 agent decisions from decisions.jsonl
+  GET  /api/overrides            — All override:* keys from all 3 Redis instances
+  GET  /api/counters             — rl:global:* slot distribution from all 3 Redis instances
+
+Control endpoints:
+  POST /api/control/scenario     — Start simulator with a named scenario
+  POST /api/control/agent/start  — Start agent in background
+  POST /api/control/agent/stop   — Stop agent process
+  GET  /api/control/status       — Agent/simulator/container health
+  POST /api/control/policies/seed — Seed demo policies via tools/seed_policies.py
 """
 
 import json
+import logging
 import os
+import re
+import subprocess
+import sys
 import time
 from collections import deque
 from pathlib import Path
 
 import redis
 import requests
-from flask import Flask, jsonify
+import yaml
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -24,14 +36,85 @@ CORS(app)
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-PROM_URL = os.getenv("PROM_URL", "http://localhost:9090")
+def _resolve_env_vars(value: str) -> str:
+    """Replace ${VAR:-default} patterns with environment variable values."""
+    def _sub(match):
+        var, _, default = match.group(1).partition(":-")
+        return os.environ.get(var, default)
+    return re.sub(r"\$\{([^}]+)\}", _sub, value)
+
+
+def _resolve_config(obj):
+    """Recursively resolve ${VAR:-default} placeholders in a parsed YAML structure."""
+    if isinstance(obj, str):
+        return _resolve_env_vars(obj)
+    if isinstance(obj, dict):
+        return {k: _resolve_config(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_resolve_config(item) for item in obj]
+    return obj
+
+
+def load_config() -> dict:
+    """Load config.yaml from the repo root, resolve env-var placeholders, and return the dict."""
+    repo_root = Path(__file__).parent.parent
+    config_path = repo_root / "config.yaml"
+    if not config_path.exists():
+        # Fallback: construct minimal config from env vars so local dev works without the file
+        return {
+            "services": {
+                "prometheus": {"url": os.getenv("PROMETHEUS_URL", os.getenv("PROM_URL", "http://localhost:9090"))},
+                "redis": {
+                    "us":   {"host": os.getenv("REDIS_US_HOST", "localhost"),   "port": os.getenv("REDIS_US_PORT", "6379")},
+                    "eu":   {"host": os.getenv("REDIS_EU_HOST", "localhost"),   "port": os.getenv("REDIS_EU_PORT", "6380")},
+                    "asia": {"host": os.getenv("REDIS_ASIA_HOST", "localhost"), "port": os.getenv("REDIS_ASIA_PORT", "6381")},
+                },
+            },
+        }
+    with open(config_path, encoding="utf-8") as fh:
+        raw = yaml.safe_load(fh)
+    return _resolve_config(raw)
+
+
+_config = load_config()
+_svc    = _config.get("services", {})
+
+PROM_URL       = _svc.get("prometheus", {}).get("url", "http://localhost:9090")
 DECISIONS_PATH = Path(os.getenv("LOG_PATH", "agent/decisions.jsonl"))
 
+_redis_svc = _svc.get("redis", {})
 REDIS_CONFIGS = {
-    "us":   {"host": os.getenv("REDIS_US_HOST", "localhost"),   "port": int(os.getenv("REDIS_US_PORT", "6379"))},
-    "eu":   {"host": os.getenv("REDIS_EU_HOST", "localhost"),   "port": int(os.getenv("REDIS_EU_PORT", "6380"))},
-    "asia": {"host": os.getenv("REDIS_ASIA_HOST", "localhost"), "port": int(os.getenv("REDIS_ASIA_PORT", "6381"))},
+    region: {
+        "host": _redis_svc.get(region, {}).get("host", defaults[0]),
+        "port": int(_redis_svc.get(region, {}).get("port", defaults[1])),
+    }
+    for region, defaults in (("us", ("localhost", 6379)), ("eu", ("localhost", 6380)), ("asia", ("localhost", 6381)))
 }
+
+# ── Control configuration ─────────────────────────────────────────────────────
+
+# Repo root is one directory above agent/
+REPO_ROOT = Path(__file__).parent.parent
+
+# Configurable paths — override via env vars if the layout ever changes
+SIMULATOR_SCRIPT = Path(os.getenv("SIMULATOR_SCRIPT", str(REPO_ROOT / "simulator" / "main.py")))
+SEED_SCRIPT      = Path(os.getenv("SEED_SCRIPT",      str(REPO_ROOT / "tools" / "seed_policies.py")))
+
+VALID_SCENARIOS: frozenset[str] = frozenset({"noisy_neighbor", "product_launch", "global_steady", "region_failover"})
+
+# Subprocess handles — only one agent and one simulator run at a time
+_procs: dict[str, subprocess.Popen | None] = {"agent": None, "simulator": None}
+_proc_started: dict[str, float] = {}
+
+# Agent config saved at start-time so /api/model/metrics knows what's running
+_agent_config: dict = {}   # {"predictor": "ewma"|"holtwinters", "interval": 15}
+
+# Control log — separate from the Flask/werkzeug log so actions are auditable
+_ctrl_log = logging.getLogger("control")
+_ctrl_log.setLevel(logging.INFO)
+_ctrl_handler = logging.FileHandler(Path(__file__).parent / "control.log")
+_ctrl_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+_ctrl_log.addHandler(_ctrl_handler)
 
 # In-memory RPS history (last 20 samples)
 _rps_history: deque = deque(maxlen=20)
@@ -274,6 +357,193 @@ def api_counters():
 def api_health():
     return jsonify({"status": "ok", "ts": int(time.time() * 1000)})
 
+
+# ── Control helpers ───────────────────────────────────────────────────────────
+
+def _is_running(key: str) -> bool:
+    """Return True if the stored process is still alive."""
+    proc = _procs.get(key)
+    return proc is not None and proc.poll() is None
+
+
+def _docker_status() -> list[dict]:
+    """Return [{name, status}] for every running container via docker ps."""
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}\t{{.Status}}"],
+            capture_output=True, text=True, timeout=5,
+        )
+        containers = []
+        for line in result.stdout.strip().splitlines():
+            if "\t" in line:
+                name, status = line.split("\t", 1)
+                containers.append({"name": name.strip(), "status": status.strip()})
+        return containers
+    except Exception as exc:
+        _ctrl_log.warning("docker ps failed: %s", exc)
+        return [{"name": "docker", "status": f"error: {exc}"}]
+
+
+# ── Control endpoints ─────────────────────────────────────────────────────────
+
+@app.route("/api/control/scenario", methods=["POST"])
+def api_control_scenario():
+    """Start the simulator with a named predefined scenario."""
+    body     = request.get_json(silent=True) or {}
+    scenario = body.get("scenario", "")
+    duration = body.get("duration")  # optional, not forwarded — scenario has its own length
+
+    if scenario not in VALID_SCENARIOS:
+        return jsonify({
+            "status": "error",
+            "message": f"Unknown scenario '{scenario}'. Valid: {sorted(VALID_SCENARIOS)}",
+        }), 400
+
+    if _is_running("simulator"):
+        return jsonify({
+            "status": "error",
+            "message": f"Simulator already running (pid {_procs['simulator'].pid}). Stop it first.",
+        }), 400
+
+    cmd = [sys.executable, str(SIMULATOR_SCRIPT), "scenario", scenario]
+    _ctrl_log.info("START simulator: %s", " ".join(cmd))
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(REPO_ROOT),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        _procs["simulator"]    = proc
+        _proc_started["simulator"] = time.time()
+        _ctrl_log.info("simulator started pid=%d scenario=%s", proc.pid, scenario)
+        return jsonify({"status": "started", "pid": proc.pid, "scenario": scenario})
+    except Exception as exc:
+        _ctrl_log.error("simulator start failed: %s", exc)
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+
+@app.route("/api/control/agent/start", methods=["POST"])
+def api_control_agent_start():
+    """Start the AI agent in background."""
+    if _is_running("agent"):
+        return jsonify({
+            "status": "error",
+            "message": f"Agent already running (pid {_procs['agent'].pid}).",
+        }), 400
+
+    body      = request.get_json(silent=True) or {}
+    predictor = body.get("predictor", "ewma")
+    interval  = int(body.get("interval", 15))
+
+    if predictor not in ("ewma", "holtwinters"):
+        return jsonify({"status": "error", "message": "predictor must be 'ewma' or 'holtwinters'"}), 400
+
+    cmd = [sys.executable, "-m", "agent.main", "run",
+           "--predictor", predictor, "--interval", str(interval)]
+    _ctrl_log.info("START agent: %s", " ".join(cmd))
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(REPO_ROOT),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        _procs["agent"]    = proc
+        _proc_started["agent"] = time.time()
+        _agent_config.update({"predictor": predictor, "interval": interval})
+        _ctrl_log.info("agent started pid=%d predictor=%s interval=%d", proc.pid, predictor, interval)
+        return jsonify({"status": "started", "pid": proc.pid, "predictor": predictor, "interval": interval})
+    except Exception as exc:
+        _ctrl_log.error("agent start failed: %s", exc)
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+
+@app.route("/api/control/agent/stop", methods=["POST"])
+def api_control_agent_stop():
+    """Stop the agent process if running."""
+    proc = _procs.get("agent")
+    if proc is None or proc.poll() is not None:
+        _procs["agent"] = None
+        return jsonify({"status": "stopped", "note": "agent was not running"})
+
+    try:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        _ctrl_log.info("agent stopped pid=%d", proc.pid)
+        _procs["agent"] = None
+        _proc_started.pop("agent", None)
+        _agent_config.clear()
+        return jsonify({"status": "stopped"})
+    except Exception as exc:
+        _ctrl_log.error("agent stop failed: %s", exc)
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+
+@app.route("/api/control/status")
+def api_control_status():
+    """Return running state for agent, simulator, and all Docker containers."""
+    now = time.time()
+
+    agent_running = _is_running("agent")
+    agent_info: dict = {"running": agent_running}
+    if agent_running and _procs["agent"]:
+        agent_info["pid"] = _procs["agent"].pid
+        if "agent" in _proc_started:
+            agent_info["uptime_seconds"] = int(now - _proc_started["agent"])
+
+    sim_running = _is_running("simulator")
+    sim_info: dict = {"running": sim_running}
+    if sim_running and _procs["simulator"]:
+        sim_info["pid"] = _procs["simulator"].pid
+        if "simulator" in _proc_started:
+            sim_info["uptime_seconds"] = int(now - _proc_started["simulator"])
+
+    return jsonify({
+        "agent":      agent_info,
+        "simulator":  sim_info,
+        "containers": _docker_status(),
+    })
+
+
+@app.route("/api/control/policies/seed", methods=["POST"])
+def api_control_policies_seed():
+    """Seed demo policies to all regional Redis instances."""
+    cmd = [sys.executable, str(SEED_SCRIPT), "--demo"]
+    _ctrl_log.info("SEED policies: %s", " ".join(cmd))
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(REPO_ROOT),
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode != 0:
+            _ctrl_log.error("seed_policies failed: %s", result.stderr.strip())
+            return jsonify({
+                "status": "error",
+                "stderr": result.stderr.strip(),
+                "stdout": result.stdout.strip(),
+            }), 500
+
+        # Count "  SET " lines as a proxy for the number of policies written
+        policies_written = result.stdout.count("  SET ")
+        _ctrl_log.info("seed_policies: %d policies written", policies_written)
+        return jsonify({
+            "status": "seeded",
+            "policies_written": policies_written,
+            "output": result.stdout.strip(),
+        })
+    except subprocess.TimeoutExpired:
+        return jsonify({"status": "error", "message": "seed_policies timed out after 15s"}), 500
+    except Exception as exc:
+        _ctrl_log.error("seed_policies exception: %s", exc)
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _count_recent_decisions() -> int:
@@ -299,6 +569,146 @@ def _count_recent_decisions() -> int:
     except Exception:
         pass
     return total
+
+
+# ── Model metrics helpers ─────────────────────────────────────────────────────
+
+_ALL_KEYS = [f"{r}/{t}" for r in ("us", "eu", "asia") for t in ("free", "premium", "internal")]
+# Prefer us/free for the chart since demo scenarios target it most.
+_CHART_PRIORITY = ["us/free", "eu/free", "asia/free", "us/premium", "eu/premium", "asia/premium"]
+
+
+def _parse_recent_ticks(n: int = 40) -> list[dict]:
+    """Return the last n complete ticks from decisions.jsonl, oldest-first."""
+    try:
+        path = DECISIONS_PATH if DECISIONS_PATH.is_absolute() else Path.cwd() / DECISIONS_PATH
+        if not path.exists():
+            path = Path(__file__).parent / "decisions.jsonl"
+        if not path.exists():
+            return []
+        with open(path, "r", encoding="utf-8") as fh:
+            lines = fh.readlines()
+        ticks = []
+        for line in lines[-n:]:
+            line = line.strip()
+            if line:
+                try:
+                    ticks.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+        return ticks
+    except Exception:
+        return []
+
+
+def _pick_chart_key(ticks: list[dict]) -> str:
+    """Return the region/tier key with the most non-null predictions in the window."""
+    counts: dict[str, int] = {k: 0 for k in _ALL_KEYS}
+    for tick in ticks:
+        for key in _ALL_KEYS:
+            p = tick.get("predictions", {}).get(key)
+            if p and isinstance(p, dict) and p.get("point") is not None:
+                counts[key] += 1
+    # Prefer the priority order; fall back to highest count.
+    for k in _CHART_PRIORITY:
+        if counts.get(k, 0) > 0:
+            return k
+    return max(counts, key=lambda k: counts[k]) if counts else "us/free"
+
+
+@app.route("/api/model/metrics")
+def api_model_metrics():
+    """
+    Returns rolling ML model performance metrics derived from decisions.jsonl.
+    No loop.py changes needed — all prediction data is already logged there.
+    """
+    agent_running = _is_running("agent")
+    predictor     = _agent_config.get("predictor", "ewma")
+    interval      = _agent_config.get("interval", 15)
+    training_window = 40 if predictor == "holtwinters" else 8
+
+    if not agent_running:
+        return jsonify({
+            "running":   False,
+            "predictor": predictor,
+            "metrics":   None,
+        })
+
+    ticks = _parse_recent_ticks(n=40)
+    if not ticks:
+        return jsonify({"running": True, "predictor": predictor, "warmup": True, "metrics": None})
+
+    chart_key = _pick_chart_key(ticks)
+    last_tick  = ticks[-1]
+    tick_num   = last_tick.get("tick", 0)
+
+    # ── Warmup detection ─────────────────────────────────────────────────────
+    has_any_prediction = any(
+        (p := tick.get("predictions", {}).get(chart_key)) and isinstance(p, dict) and p.get("point") is not None
+        for tick in ticks[-training_window:]
+    )
+    warmup = not has_any_prediction or tick_num < training_window
+
+    # ── Prediction history for chart (last 20 ticks, chart_key only) ─────────
+    history = []
+    for t in ticks[-20:]:
+        pred_raw = t.get("predictions", {}).get(chart_key)
+        actual   = t.get("observed_features", {}).get(chart_key, {}).get("rps", 0.0)
+        pred_pt  = None
+        if pred_raw and isinstance(pred_raw, dict):
+            pred_pt = pred_raw.get("point")
+        history.append({
+            "tick":      t.get("tick", 0),
+            "ts":        t.get("timestamp", 0),
+            "predicted": round(pred_pt, 3) if pred_pt is not None else None,
+            "actual":    round(actual, 3),
+        })
+
+    # ── Rolling MAE across ALL keys where predictions exist ───────────────────
+    errors: list[float] = []
+    for t in ticks[-20:]:
+        for key in _ALL_KEYS:
+            p = t.get("predictions", {}).get(key)
+            if p and isinstance(p, dict) and (pt := p.get("point")) is not None:
+                act = t.get("observed_features", {}).get(key, {}).get("rps", 0.0)
+                errors.append(abs(pt - act))
+    mae = round(sum(errors) / len(errors), 4) if errors else None
+
+    # ── Last prediction + CIs ─────────────────────────────────────────────────
+    last_pred_raw = last_tick.get("predictions", {}).get(chart_key)
+    last_pred_pt = last_lower = last_upper = None
+    if last_pred_raw and isinstance(last_pred_raw, dict):
+        last_pred_pt = last_pred_raw.get("point")
+        last_lower   = last_pred_raw.get("lower")
+        last_upper   = last_pred_raw.get("upper")
+
+    last_actual = last_tick.get("observed_features", {}).get(chart_key, {}).get("rps", 0.0)
+
+    def _r(v: float | None) -> float | None:
+        return round(v, 3) if v is not None else None
+
+    return jsonify({
+        "running":   True,
+        "predictor": predictor,
+        "warmup":    warmup,
+        "chart_key": chart_key,
+        "metrics": {
+            "mae":              mae,
+            "last_prediction":  _r(last_pred_pt),
+            "last_actual":      _r(last_actual),
+            "confidence_lower": _r(last_lower),
+            "confidence_upper": _r(last_upper),
+            "samples_processed": tick_num,
+            "training_window":  training_window,
+            "last_updated":     last_tick.get("timestamp", 0),
+            "prediction_history": history,
+        },
+        "config": {
+            "alpha":            0.3 if predictor == "ewma" else None,
+            "seasonal_period":  20  if predictor == "holtwinters" else None,
+            "interval_seconds": interval,
+        },
+    })
 
 
 if __name__ == "__main__":

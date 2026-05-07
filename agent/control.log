@@ -1,0 +1,25 @@
+2026-05-06 18:14:02,056 INFO SEED policies: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/tools/seed_policies.py --demo
+2026-05-06 18:14:02,204 INFO seed_policies: 9 policies written
+2026-05-06 18:14:02,216 INFO START agent: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python -m agent.main run --predictor ewma --interval 15
+2026-05-06 18:14:02,217 INFO agent started pid=17604 predictor=ewma interval=15
+2026-05-06 18:14:03,417 INFO agent stopped pid=17604
+2026-05-06 18:16:17,153 INFO START agent: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python -m agent.main run --predictor ewma --interval 15
+2026-05-06 18:16:17,155 INFO agent started pid=18112 predictor=ewma interval=15
+2026-05-06 18:16:33,303 INFO agent stopped pid=18112
+2026-05-06 18:16:37,805 INFO SEED policies: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/tools/seed_policies.py --demo
+2026-05-06 18:16:37,956 INFO seed_policies: 9 policies written
+2026-05-06 18:17:21,112 INFO START simulator: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/simulator/main.py scenario global_steady
+2026-05-06 18:17:21,114 INFO simulator started pid=18380 scenario=global_steady
+2026-05-06 18:25:22,571 INFO START agent: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python -m agent.main run --predictor ewma --interval 15
+2026-05-06 18:25:22,579 INFO agent started pid=20059 predictor=ewma interval=15
+2026-05-06 18:25:39,011 INFO START simulator: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/simulator/main.py scenario noisy_neighbor
+2026-05-06 18:25:39,021 INFO simulator started pid=20114 scenario=noisy_neighbor
+2026-05-06 18:27:44,193 INFO agent stopped pid=20059
+2026-05-06 19:18:16,755 INFO START agent: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python -m agent.main run --predictor ewma --interval 15
+2026-05-06 19:18:16,757 INFO agent started pid=31422 predictor=ewma interval=15
+2026-05-06 19:18:17,802 INFO agent stopped pid=31422
+2026-05-06 20:37:47,039 INFO START agent: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python -m agent.main run --predictor holtwinters --interval 15
+2026-05-06 20:37:47,046 INFO agent started pid=34727 predictor=holtwinters interval=15
+2026-05-06 20:37:57,753 INFO START simulator: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/simulator/main.py scenario region_failover
+2026-05-06 20:37:57,758 INFO simulator started pid=34764 scenario=region_failover
+2026-05-06 20:39:34,388 INFO agent stopped pid=34727
