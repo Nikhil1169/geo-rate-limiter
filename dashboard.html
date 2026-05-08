@@ -1,0 +1,1932 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Geo-Distributed Rate Limiter · Dashboard</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+      background: #0a0a0a; color: #e5e7eb; min-height: 100vh;
+    }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #111; }
+    ::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 3px; }
+
+    /* ── Mesh background ──────────────────────────────────────────────────── */
+    @keyframes meshFloat1 { 0%,100%{transform:translate(0,0) scale(1)} 33%{transform:translate(3%,2%) scale(1.06)} 66%{transform:translate(-2%,4%) scale(.97)} }
+    @keyframes meshFloat2 { 0%,100%{transform:translate(0,0) scale(1)} 40%{transform:translate(-5%,-3%) scale(1.04)} 70%{transform:translate(3%,-2%) scale(1.08)} }
+    @keyframes meshFloat3 { 0%,100%{transform:translate(0,0) scale(1)} 50%{transform:translate(4%,-5%) scale(1.1)} }
+
+    /* ── Decisions row slide-in ───────────────────────────────────────────── */
+    @keyframes slideInRight { from{transform:translateX(18px);opacity:0} to{transform:translateX(0);opacity:1} }
+    .row-new { animation: slideInRight 0.4s cubic-bezier(0.22,1,0.36,1) forwards; }
+
+    /* ── Overrides glow ──────────────────────────────────────────────────── */
+    @keyframes overrideGlow { 0%,100%{box-shadow:0 0 0 1px #f59e0b28,0 0 16px #f59e0b0a} 50%{box-shadow:0 0 0 1px #f59e0b66,0 0 24px #f59e0b1a} }
+    .override-active { animation: overrideGlow 2.5s ease-in-out infinite; }
+
+    /* ── Header dot pulse ────────────────────────────────────────────────── */
+    @keyframes dotPulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    /* ── Section stagger ─────────────────────────────────────────────────── */
+    @keyframes fadeSlideUp { from{transform:translateY(10px);opacity:0} to{transform:translateY(0);opacity:1} }
+    .section-stagger { animation: fadeSlideUp 0.4s ease forwards; opacity: 0; }
+
+    /* ── Toast ───────────────────────────────────────────────────────────── */
+    @keyframes toastIn  { from{transform:translateY(-14px);opacity:0} to{transform:translateY(0);opacity:1} }
+    @keyframes toastOut { from{transform:translateY(0);opacity:1}     to{transform:translateY(-14px);opacity:0} }
+    .toast-in  { animation: toastIn  0.3s cubic-bezier(0.22,1,0.36,1) forwards; }
+    .toast-out { animation: toastOut 0.25s ease forwards; }
+
+    /* ── Status dot breathe ──────────────────────────────────────────────── */
+    @keyframes breathe { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(1.4);opacity:.5} }
+    .dot-breathe { animation: breathe 2s ease-in-out infinite; }
+
+    /* ── Text shimmer (section headers) ──────────────────────────────────── */
+    @keyframes shimmer { 0%{background-position:-200% center} 100%{background-position:200% center} }
+    .section-shimmer {
+      background: linear-gradient(90deg, #3a3a3a 0%, #888 35%, #ccc 50%, #888 65%, #3a3a3a 100%);
+      background-size: 200% auto;
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: shimmer 4s linear infinite;
+    }
+
+    /* ── Ripple expand ───────────────────────────────────────────────────── */
+    @keyframes rippleExpand { 0%{width:4px;height:4px;opacity:.6} 100%{width:220px;height:220px;opacity:0} }
+
+    /* ── Success pulse ───────────────────────────────────────────────────── */
+    @keyframes successPulse { 0%{box-shadow:0 0 0 0 #10b98166} 65%{box-shadow:0 0 0 16px transparent} 100%{box-shadow:0 0 0 0 transparent} }
+
+    /* ── Border beam sweep (selected scenario wrapper) ───────────────────── */
+    @keyframes beamSweep { 0%{background-position:200% 50%} 100%{background-position:-200% 50%} }
+
+    /* ── Toggle button beam ──────────────────────────────────────────────── */
+    @keyframes toggleBeam { 0%,100%{box-shadow:0 0 0 1px #3b82f61a} 50%{box-shadow:0 0 0 1px #3b82f655,0 0 14px #3b82f618} }
+
+    /* ── Spinner ─────────────────────────────────────────────────────────── */
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Chart modal ──────────────────────────────────────────────────────── */
+    @keyframes overlayIn  { from{opacity:0} to{opacity:1} }
+    @keyframes overlayOut { from{opacity:1} to{opacity:0} }
+    @keyframes modalIn  { from{opacity:0;transform:scale(0.91)} to{opacity:1;transform:scale(1)} }
+    @keyframes modalOut { from{opacity:1;transform:scale(1)}    to{opacity:0;transform:scale(0.94)} }
+
+    /* ── Clickable chart wrapper ──────────────────────────────────────────── */
+    .chart-hot {
+      cursor: zoom-in; position: relative; border-radius: 8px;
+      transition: box-shadow 0.2s ease;
+    }
+    .chart-hot:hover { box-shadow: 0 0 0 1.5px #3b82f630; }
+
+    /* ── Expand hint (appears on hover) ──────────────────────────────────── */
+    .expand-icon {
+      position: absolute; top: 6px; right: 6px;
+      opacity: 0; transition: opacity 0.18s;
+      background: #3b82f618; border: 1px solid #3b82f630;
+      color: #3b82f6; font-size: 10px; font-weight: 700;
+      padding: 2px 5px; border-radius: 4px;
+      pointer-events: none; user-select: none; line-height: 1.6;
+      letter-spacing: 0.03em;
+    }
+    .chart-hot:hover .expand-icon { opacity: 1; }
+
+    /* ── Magnetic button base ────────────────────────────────────────────── */
+    .mag-btn {
+      transition: filter 0.15s, background 0.15s, border-color 0.2s, opacity 0.15s;
+      will-change: transform; outline: none; font-family: inherit;
+    }
+    .mag-btn:not(:disabled):hover  { filter: brightness(1.18); }
+    .mag-btn:not(:disabled):active { filter: brightness(0.88); }
+
+    /* ── Scenario button base ────────────────────────────────────────────── */
+    .scn-btn {
+      transition: filter 0.15s, box-shadow 0.25s;
+      will-change: transform; outline: none; font-family: inherit;
+    }
+    .scn-btn:not(:disabled):hover { filter: brightness(1.15); }
+
+    /* ── Slider ──────────────────────────────────────────────────────────── */
+    input[type=range] { -webkit-appearance:none; appearance:none; background:transparent; }
+    input[type=range]::-webkit-slider-runnable-track { height:4px; border-radius:2px; background:#1e1e1e; }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance:none; appearance:none; width:14px; height:14px;
+      border-radius:50%; background:#3b82f6; border:2px solid #111;
+      margin-top:-5px; cursor:pointer; transition:transform 0.15s, box-shadow 0.15s;
+    }
+    input[type=range]::-webkit-slider-thumb:hover { transform:scale(1.25); box-shadow:0 0 0 4px #3b82f622; }
+
+    /* ── Select / Input ──────────────────────────────────────────────────── */
+    .ctrl-select, .ctrl-input {
+      background:#111; border:1px solid #252525; border-radius:7px;
+      color:#e5e7eb; font-size:12px; padding:7px 10px; width:100%;
+      outline:none; transition:border-color 0.15s, box-shadow 0.15s; font-family:inherit;
+    }
+    .ctrl-select:focus, .ctrl-input:focus { border-color:#3b82f6; box-shadow:0 0 0 3px #3b82f615; }
+  </style>
+</head>
+<body>
+  <div id="loading-fallback" style="display:flex;align-items:center;justify-content:center;height:100vh;color:#333;font-family:monospace;font-size:13px;flex-direction:column;gap:12px;">
+    <div>Loading dashboard…</div>
+    <div id="fallback-error" style="color:#ef4444;font-size:11px;display:none;max-width:500px;text-align:center;line-height:1.6;"></div>
+  </div>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://cdn.jsdelivr.net/npm/prop-types@15.8.1/prop-types.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.10.0/Recharts.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.10/babel.min.js"></script>
+
+  <script type="text/babel" data-presets="react">
+    const { useState, useEffect, useCallback, useRef } = React;
+
+    if (!window.Recharts) {
+      const el = document.getElementById('fallback-error');
+      if (el) { el.style.display='block'; el.textContent='Recharts CDN failed — check network and reload.'; }
+      throw new Error('Recharts not loaded');
+    }
+    const { LineChart, Line, AreaChart, Area, BarChart, Bar,
+            XAxis, YAxis, Tooltip, CartesianGrid, LabelList, ResponsiveContainer,
+            ReferenceLine } = Recharts;
+    const RC2 = ResponsiveContainer;
+
+    // ─── Config ───────────────────────────────────────────────────────────────
+    const API        = window.DASHBOARD_API_URL !== undefined ? window.DASHBOARD_API_URL : 'http://localhost:5001';
+    const REFRESH_MS = 1000;
+
+    const SCENARIOS = [
+      { id:'noisy_neighbor',  label:'Noisy Neighbor',  color:'#f59e0b', desc:'2 abusers → tier congestion → latency spike for all users' },
+      { id:'product_launch',  label:'Product Launch',  color:'#3b82f6', desc:'10× spike on US after 30s' },
+      { id:'global_steady',   label:'Global Steady',   color:'#10b981', desc:'Multi-region with diurnal' },
+      { id:'region_failover', label:'Region Failover', color:'#a855f7', desc:'Simulate gateway-us crash' },
+    ];
+
+    // ─── Fetch helpers ────────────────────────────────────────────────────────
+    async function fetchAll() {
+      const [metrics, decisions, overrides, counters] = await Promise.allSettled([
+        fetch(`${API}/api/metrics`).then(r  => { if (!r.ok)  throw r; return r.json(); }),
+        fetch(`${API}/api/decisions`).then(r => { if (!r.ok) throw r; return r.json(); }),
+        fetch(`${API}/api/overrides`).then(r => { if (!r.ok) throw r; return r.json(); }),
+        fetch(`${API}/api/counters`).then(r  => { if (!r.ok) throw r; return r.json(); }),
+      ]);
+      return {
+        ok:        metrics.status   === 'fulfilled',
+        metrics:   metrics.status   === 'fulfilled' ? metrics.value   : null,
+        decisions: decisions.status === 'fulfilled' ? decisions.value : [],
+        overrides: overrides.status === 'fulfilled' ? overrides.value : [],
+        counters:  counters.status  === 'fulfilled' ? counters.value  : [],
+      };
+    }
+    async function fetchCtrlStatus() {
+      const r = await fetch(`${API}/api/control/status`);
+      if (!r.ok) throw new Error('status fetch failed');
+      return r.json();
+    }
+    async function fetchModelMetrics() {
+      const r = await fetch(`${API}/api/model/metrics`);
+      if (!r.ok) throw new Error('model fetch failed');
+      return r.json();
+    }
+    async function fetchLatency() {
+      const r = await fetch(`${API}/api/user-latency?region=us&tier=free`);
+      if (!r.ok) throw new Error('latency fetch failed');
+      return r.json();
+    }
+
+    async function ctrlPost(path, body) {
+      const r = await fetch(`${API}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message || `HTTP ${r.status}`);
+      return d;
+    }
+
+    // ─── Utility ─────────────────────────────────────────────────────────────
+    const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
+
+    function fmtTime(ts) {
+      return new Date(ts).toLocaleTimeString('en-US', { hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    }
+    function fmtNum(n, dec=0) {
+      if (n==null || isNaN(n)) return '—';
+      return Number(n).toLocaleString('en-US', { maximumFractionDigits:dec });
+    }
+    function fmtUptime(s) {
+      if (!s || s < 1) return '0s';
+      const m = Math.floor(s/60), sec = s%60;
+      return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+    }
+
+    // ─── useAnimatedNumber ────────────────────────────────────────────────────
+    function useAnimatedNumber(target, dur=500) {
+      const [v, setV] = useState(target ?? 0);
+      const from = useRef(target ?? 0);
+      const raf  = useRef(null);
+      useEffect(() => {
+        const a = from.current, b = target ?? 0;
+        if (a === b) return;
+        const t0 = performance.now();
+        const tick = (now) => {
+          const p = Math.min((now - t0) / dur, 1);
+          setV(a + (b - a) * easeOutCubic(p));
+          if (p < 1) raf.current = requestAnimationFrame(tick); else from.current = b;
+        };
+        raf.current = requestAnimationFrame(tick);
+        return () => { if (raf.current) cancelAnimationFrame(raf.current); };
+      }, [target, dur]);
+      return v;
+    }
+
+    // ─── useMagnetic ─────────────────────────────────────────────────────────
+    // Moves the element toward the cursor when within `radius` px — 60fps via rAF.
+    function useMagnetic(ref, { radius=80, strength=0.24 } = {}) {
+      useEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        let pending = null;
+        const onMove = (e) => {
+          if (pending) return;
+          pending = requestAnimationFrame(() => {
+            pending = null;
+            if (!el) return;
+            const r  = el.getBoundingClientRect();
+            const dx = e.clientX - (r.left + r.width  / 2);
+            const dy = e.clientY - (r.top  + r.height / 2);
+            const d  = Math.sqrt(dx*dx + dy*dy);
+            if (d < radius && !el.disabled) {
+              const s = ((radius - d) / radius) * strength;
+              const scale = 1 + ((radius - d) / radius) * 0.04;
+              el.style.transform = `translate(${dx*s}px,${dy*s}px) scale(${scale})`;
+            } else {
+              el.style.transform = '';
+            }
+          });
+        };
+        window.addEventListener('mousemove', onMove, { passive: true });
+        return () => {
+          window.removeEventListener('mousemove', onMove);
+          if (pending) cancelAnimationFrame(pending);
+          if (el) el.style.transform = '';
+        };
+      }, []); // eslint-disable-line
+    }
+
+    // ─── Shared atoms ─────────────────────────────────────────────────────────
+    const REGION_COLOR = { us:'#10b981', eu:'#3b82f6', asia:'#a855f7' };
+    const TIER_COLOR   = { free:'#6b7280', premium:'#f59e0b', internal:'#10b981' };
+
+    function Pill({ children, color='#ffffff14', text='#666' }) {
+      return <span style={{ background:color, color:text, fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:20, textTransform:'uppercase', letterSpacing:'0.06em' }}>{children}</span>;
+    }
+    function TypeBadge({ type }) {
+      const s = type==='override' ? {bg:'#f59e0b18',txt:'#f59e0b'} : {bg:'#3b82f618',txt:'#3b82f6'};
+      return <span style={{ background:s.bg, color:s.txt, fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:4, textTransform:'uppercase', letterSpacing:'0.05em', border:`1px solid ${s.txt}28` }}>{type}</span>;
+    }
+    function RegionBadge({ region }) {
+      return <span style={{ color:REGION_COLOR[region]||'#888', fontSize:11, fontWeight:700 }}>{region?.toUpperCase()??'—'}</span>;
+    }
+    function TierBadge({ tier }) {
+      return <span style={{ color:TIER_COLOR[tier]||'#888', fontSize:11 }}>{tier??'—'}</span>;
+    }
+    function TTLCell({ ttl }) {
+      if (ttl==null||ttl<0) return <span style={{ color:'#444' }}>∞</span>;
+      const color = ttl>300?'#10b981':ttl>60?'#f59e0b':'#ef4444';
+      const m=Math.floor(ttl/60),s=ttl%60;
+      return <span style={{ color, fontFamily:'monospace', fontSize:12, fontWeight:600 }}>{m>0?`${m}m `:''}{String(s).padStart(2,'0')}s</span>;
+    }
+    function Skeleton({ h=16, w='100%', r=4 }) {
+      return <div style={{ height:h, width:w, borderRadius:r, background:'linear-gradient(90deg,#1c1c1c 25%,#262626 50%,#1c1c1c 75%)', backgroundSize:'400% 100%' }} />;
+    }
+
+    // ─── GradientSpinner ─────────────────────────────────────────────────────
+    function GradientSpinner({ size=12, color='#3b82f6' }) {
+      return (
+        <div style={{ width:size, height:size, borderRadius:'50%', flexShrink:0,
+          border:`2px solid ${color}22`, borderTopColor:color, borderRightColor:'#a855f7',
+          animation:'spin 0.75s linear infinite' }} />
+      );
+    }
+
+    // ─── Sparkline ────────────────────────────────────────────────────────────
+    function Sparkline({ data, color }) {
+      if (!data || data.length < 2) return <div style={{ height:44, display:'flex', alignItems:'center' }}><Skeleton h={2} r={1} /></div>;
+      const pts = data.map((d,i) => ({ i, v: typeof d==='object' ? (d.v??0) : Number(d) }));
+      return (
+        <ResponsiveContainer width="100%" height={44}>
+          <LineChart data={pts} margin={{ top:4, right:2, bottom:0, left:2 }}>
+            <Line type="monotone" dataKey="v" stroke={color} dot={false} strokeWidth={1.5} isAnimationActive={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      );
+    }
+
+    // ─── Panel / Table shells ─────────────────────────────────────────────────
+    function Panel({ children, className='', style={} }) {
+      return <div className={className} style={{ background:'#1a1a1a', border:'1px solid #222', borderRadius:12, display:'flex', flexDirection:'column', overflow:'hidden', ...style }}>{children}</div>;
+    }
+    function PanelHeader({ title, badge }) {
+      return (
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 20px', borderBottom:'1px solid #1d1d1d', flexShrink:0 }}>
+          <span style={{ fontSize:13, fontWeight:600, color:'#e5e7eb', letterSpacing:'-0.01em' }}>{title}</span>
+          {badge}
+        </div>
+      );
+    }
+    function DataTable({ cols, rows, empty, maxHeight }) {
+      if (!rows || rows.length===0) return <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'48px 0', color:'#3a3a3a', fontSize:13 }}>{empty}</div>;
+      return (
+        <div style={{ overflowY:'auto', overflowX:'auto', flex:1, minWidth:0, ...(maxHeight ? { maxHeight } : {}) }}>
+          <table style={{ width:'100%', borderCollapse:'collapse', tableLayout:'fixed' }}>
+            <thead>
+              <tr style={{ background:'#111', position:'sticky', top:0, zIndex:1 }}>
+                {cols.map(c => <th key={c} style={{ padding:'8px 14px', textAlign:'left', fontSize:10, color:'#404040', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', whiteSpace:'nowrap' }}>{c}</th>)}
+              </tr>
+            </thead>
+            <tbody>{rows}</tbody>
+          </table>
+        </div>
+      );
+    }
+    function TD({ children, mono=false, mw }) {
+      return <td style={{ padding:'9px 14px', fontSize:12, borderBottom:'1px solid #1c1c1c', color:'#c4c8cc', fontFamily:mono?'ui-monospace,SFMono-Regular,Menlo,monospace':undefined, maxWidth:mw, overflow:mw?'hidden':undefined, textOverflow:mw?'ellipsis':undefined, whiteSpace:mw?'nowrap':undefined }}>{children}</td>;
+    }
+
+    // ─── EnlargedSparkline ────────────────────────────────────────────────────
+    // Full-resolution line chart shown inside the modal.
+    function EnlargedSparkline({ data, color, unit }) {
+      if (!data || data.length < 2) {
+        return <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100%', color:'#444', fontSize:13 }}>Not enough data</div>;
+      }
+      const pts = data.map(d => ({
+        t: d.t ? fmtTime(d.t) : '',
+        v: typeof d === 'object' ? (d.v ?? 0) : Number(d),
+      }));
+      const gradId = `sg-${color.replace('#','')}`;
+      return (
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={pts} margin={{ top:20, right:24, bottom:16, left:12 }}>
+            <defs>
+              <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%"  stopColor={color} stopOpacity={0.25}/>
+                <stop offset="90%" stopColor={color} stopOpacity={0}/>
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1c1c1c" vertical={false}/>
+            <XAxis dataKey="t" tick={{ fill:'#505050', fontSize:10 }} axisLine={false} tickLine={false}
+              interval={Math.floor(pts.length / 6)}/>
+            <YAxis tick={{ fill:'#444', fontSize:10 }} axisLine={false} tickLine={false}
+              tickFormatter={v => fmtNum(v,1)}/>
+            <Tooltip
+              contentStyle={{ background:'#111', border:`1px solid ${color}44`, borderRadius:9, fontSize:12, padding:'8px 14px' }}
+              labelStyle={{ color:'#888', marginBottom:4 }}
+              itemStyle={{ color }}
+              formatter={(v) => [`${fmtNum(v,2)}${unit ? ' '+unit : ''}`, 'Value']}
+            />
+            <Area type="monotone" dataKey="v" stroke={color} strokeWidth={2}
+              fill={`url(#${gradId})`} dot={false}
+              activeDot={{ r:5, fill:color, stroke:'#111', strokeWidth:2 }}
+              isAnimationActive={true} animationDuration={200} animationEasing="ease-out"
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      );
+    }
+
+    // ─── EnlargedBarChart ─────────────────────────────────────────────────────
+    function EnlargedBarChart({ data }) {
+      if (!data || data.length === 0) {
+        return <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100%', color:'#444', fontSize:13 }}>No data</div>;
+      }
+      return (
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} barSize={18} barCategoryGap="30%"
+            margin={{ top:28, right:24, bottom:16, left:12 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1c1c1c" vertical={false}/>
+            <XAxis dataKey="name" tick={{ fill:'#555', fontSize:11, fontFamily:'monospace' }} axisLine={false} tickLine={false}/>
+            <YAxis tick={{ fill:'#444', fontSize:11 }} axisLine={false} tickLine={false}/>
+            <Tooltip
+              contentStyle={{ background:'#111', border:'1px solid #2a2a2a', borderRadius:9, fontSize:12, padding:'8px 14px' }}
+              labelStyle={{ color:'#888', marginBottom:4 }}
+              itemStyle={{ color:'#ccc' }}
+              cursor={{ fill:'#ffffff05' }}
+            />
+            {['US','EU','Asia'].map((key,i) => (
+              <Bar key={key} dataKey={key} fill={SLOT_COLORS[i]} radius={[3,3,0,0]}
+                isAnimationActive={true} animationDuration={200} animationEasing="ease-out">
+                <LabelList dataKey={key} position="top"
+                  style={{ fill:SLOT_COLORS[i], fontSize:10, fontVariantNumeric:'tabular-nums' }}/>
+              </Bar>
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      );
+    }
+
+    // ─── EnlargedPredictionChart ──────────────────────────────────────────────
+    // data = [{t, p, a}] where p=predicted (nullable), a=actual
+    function EnlargedPredictionChart({ data }) {
+      if (!data || data.length < 2) {
+        return <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100%', color:'#444', fontSize:13 }}>Not enough data</div>;
+      }
+      return (
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top:20, right:28, bottom:20, left:12 }}>
+            <defs>
+              <linearGradient id="predActualGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%"  stopColor="#10b981" stopOpacity={0.15}/>
+                <stop offset="90%" stopColor="#10b981" stopOpacity={0}/>
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1c1c1c" vertical={false}/>
+            <XAxis dataKey="t" tick={{ fill:'#505050', fontSize:10 }} axisLine={false} tickLine={false}
+              label={{ value:'tick', position:'insideBottomRight', offset:-8, fill:'#333', fontSize:10 }}/>
+            <YAxis tick={{ fill:'#444', fontSize:10 }} axisLine={false} tickLine={false}
+              tickFormatter={v => `${fmtNum(v,1)}`}
+              label={{ value:'RPS', angle:-90, position:'insideLeft', fill:'#333', fontSize:10 }}/>
+            <Tooltip
+              contentStyle={{ background:'#111', border:'1px solid #2a2a2a', borderRadius:9, fontSize:12, padding:'8px 14px' }}
+              labelStyle={{ color:'#666', marginBottom:4 }}
+              formatter={(v, n) => [v != null ? `${fmtNum(v,3)} RPS` : '—', n === 'a' ? 'Actual' : 'Predicted']}
+              labelFormatter={t => `tick ${t}`}
+            />
+            {/* Actual — solid green */}
+            <Line type="monotone" dataKey="a" name="a"
+              stroke="#10b981" strokeWidth={2}
+              dot={{ r:3, fill:'#10b981', stroke:'#111', strokeWidth:1.5 }}
+              activeDot={{ r:5, fill:'#10b981', stroke:'#111', strokeWidth:2 }}
+              isAnimationActive={false} connectNulls={false}/>
+            {/* Predicted — dashed blue */}
+            <Line type="monotone" dataKey="p" name="p"
+              stroke="#3b82f6" strokeWidth={2} strokeDasharray="6 3"
+              dot={{ r:3, fill:'#3b82f6', stroke:'#111', strokeWidth:1.5 }}
+              activeDot={{ r:5, fill:'#3b82f6', stroke:'#111', strokeWidth:2 }}
+              isAnimationActive={false} connectNulls={false}/>
+          </LineChart>
+        </ResponsiveContainer>
+      );
+    }
+
+    // ─── ChartModal ───────────────────────────────────────────────────────────
+    // chart = { type:'sparkline'|'bar'|'prediction', data, title, color?, unit? }
+    function ChartModal({ chart, onClose }) {
+      const [closing, setClosing] = useState(false);
+      const closeRef = useRef();
+
+      const close = useCallback(() => {
+        setClosing(true);
+        setTimeout(onClose, 220);
+      }, [onClose]);
+
+      // ESC key
+      useEffect(() => {
+        const h = (e) => { if (e.key === 'Escape') close(); };
+        window.addEventListener('keydown', h);
+        return () => window.removeEventListener('keydown', h);
+      }, [close]);
+
+      // Auto-focus close button for keyboard users
+      useEffect(() => { closeRef.current?.focus(); }, []);
+
+      const overlayAnim = closing ? 'overlayOut 0.22s ease forwards' : 'overlayIn 0.25s ease';
+      const modalAnim   = closing ? 'modalOut 0.22s cubic-bezier(0.16,1,0.3,1) forwards'
+                                  : 'modalIn 0.32s cubic-bezier(0.16,1,0.3,1)';
+      return (
+        <div role="dialog" aria-modal="true" aria-label={chart.title}
+          onClick={close}
+          style={{ position:'fixed', inset:0, zIndex:500,
+            background:'#000000cc', backdropFilter:'blur(14px)',
+            display:'flex', alignItems:'center', justifyContent:'center',
+            animation: overlayAnim }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ width:'80vw', height:'72vh', minHeight:380, maxWidth:1200,
+              background:'#141414', border:'1px solid #2a2a2a', borderRadius:16,
+              display:'flex', flexDirection:'column', overflow:'hidden',
+              boxShadow:'0 32px 100px #00000099',
+              animation: modalAnim }}>
+
+            {/* Modal header */}
+            <div style={{ padding:'16px 22px', borderBottom:'1px solid #1e1e1e',
+              display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
+              <div>
+                <div style={{ fontSize:15, fontWeight:700, color:'#f3f4f6', letterSpacing:'-0.01em' }}>
+                  {chart.title}
+                </div>
+                {chart.unit && <div style={{ fontSize:11, color:'#505050', marginTop:2 }}>{chart.unit} over last 2 minutes</div>}
+              </div>
+              <button ref={closeRef} onClick={close} aria-label="Close chart"
+                style={{ width:32, height:32, borderRadius:8, background:'#1e1e1e',
+                  border:'1px solid #2a2a2a', cursor:'pointer',
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  color:'#666', fontSize:20, lineHeight:1,
+                  transition:'background 0.15s, color 0.15s', outline:'none' }}
+                onMouseEnter={e=>{e.currentTarget.style.background='#2a2a2a';e.currentTarget.style.color='#eee';}}
+                onMouseLeave={e=>{e.currentTarget.style.background='#1e1e1e';e.currentTarget.style.color='#666';}}>
+                ×
+              </button>
+            </div>
+
+            {/* Modal body — explicit minHeight so ResponsiveContainer height="100%" resolves */}
+            <div style={{ flex:1, padding:'16px 16px 20px', minHeight:320, overflow:'hidden' }}>
+              {chart.type === 'sparkline' && (
+                <EnlargedSparkline data={chart.data} color={chart.color} unit={chart.unit}/>
+              )}
+              {chart.type === 'bar' && (
+                <EnlargedBarChart data={chart.data}/>
+              )}
+              {chart.type === 'prediction' && (
+                <EnlargedPredictionChart data={chart.data}/>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── MetricCard ───────────────────────────────────────────────────────────
+    function MetricCard({ title, rawValue, decimals=0, unit, sub, color, spark, loading, isInt=false, onExpand, live=false, peak=null }) {
+      const animated = useAnimatedNumber(rawValue??0, 500);
+      const display  = rawValue==null ? '—' : isInt ? Math.round(animated).toLocaleString() : animated.toFixed(decimals);
+      const canExpand = !loading && spark && spark.length >= 2 && onExpand;
+      // peak: { value:number, unit:string, ageSeconds:number } | null
+      // Used for moment-only metrics (e.g. tier latency) so demo viewers
+      // who look up a few seconds late don't miss the storyline.
+      const showPeak = !loading && peak && peak.value != null && peak.ageSeconds != null
+                       && peak.value > (rawValue ?? 0) * 1.1 && peak.value > 0;
+      return (
+        <div style={{ background:'#1a1a1a', border:'1px solid #222', borderRadius:12, padding:'20px 20px 14px', display:'flex', flexDirection:'column', gap:4 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+            <span style={{ fontSize:11, color:'#505050', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em' }}>{title}</span>
+            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+              {live && (
+                <span style={{ fontSize:9, fontWeight:700, color:'#10b981', display:'flex', alignItems:'center', gap:3 }}>
+                  <div className="dot-breathe" style={{ width:5, height:5, borderRadius:'50%', background:'#10b981', display:'inline-block' }}/>
+                  LIVE
+                </span>
+              )}
+              <div style={{ width:8, height:8, borderRadius:'50%', background:color, boxShadow:`0 0 7px ${color}99` }} />
+            </div>
+          </div>
+          <div style={{ display:'flex', alignItems:'baseline', gap:5, marginTop:4 }}>
+            {loading ? <Skeleton h={32} w={80} r={6} /> : <span style={{ fontSize:30, fontWeight:700, color:'#f3f4f6', letterSpacing:'-0.03em', lineHeight:1, fontVariantNumeric:'tabular-nums' }}>{display}</span>}
+            {unit && !loading && <span style={{ fontSize:13, color:'#4a4a4a' }}>{unit}</span>}
+            {showPeak && (
+              <span style={{ fontSize:10, color:'#f59e0b', marginLeft:4, fontVariantNumeric:'tabular-nums' }}
+                    title={`peak ${peak.value}${peak.unit||''} ${peak.ageSeconds}s ago`}>
+                ↑ peak {Math.round(peak.value)}{peak.unit||''} · {peak.ageSeconds}s ago
+              </span>
+            )}
+          </div>
+          {sub && !loading && <span style={{ fontSize:11, color:'#404040' }}>{sub}</span>}
+          <div
+            className={canExpand ? 'chart-hot' : ''}
+            style={{ marginTop:6 }}
+            onClick={canExpand ? () => onExpand({ type:'sparkline', data:spark, title, color, unit }) : undefined}
+            title={canExpand ? 'Click to expand' : undefined}>
+            {loading ? <Skeleton h={44} r={3} /> : <Sparkline data={spark} color={color} />}
+            {canExpand && <div className="expand-icon">expand</div>}
+          </div>
+        </div>
+      );
+    }
+
+    // ─── DecisionsFeed ────────────────────────────────────────────────────────
+    function DecisionsFeed({ decisions, loading }) {
+      const seenRef = useRef(new Set());
+      const [newKeys, setNewKeys] = useState(new Set());
+      useEffect(() => {
+        if (!decisions.length) return;
+        const inc = new Set();
+        decisions.forEach(d => { const k=`${d.tick}-${d.type}-${d.user_id}-${d.limit_per_minute}`; if (!seenRef.current.has(k)){inc.add(k);seenRef.current.add(k);} });
+        if (inc.size) { setNewKeys(inc); const t=setTimeout(()=>setNewKeys(new Set()),500); return ()=>clearTimeout(t); }
+      }, [decisions]);
+      const badge = <Pill color="#10b98118" text="#10b981">{decisions.length} recent</Pill>;
+      const rows = decisions.map((d,i) => {
+        const k=`${d.tick}-${d.type}-${d.user_id}-${d.limit_per_minute}`;
+        return (
+          <tr key={k+i} className={newKeys.has(k)?'row-new':''}>
+            <TD mono>{fmtTime(d.ts)}</TD>
+            <TD><TypeBadge type={d.type}/></TD>
+            <TD><RegionBadge region={d.region}/></TD>
+            <TD><TierBadge tier={d.tier}/></TD>
+            <TD mono>{d.limit_per_minute!=null ? <>{fmtNum(d.limit_per_minute)}<span style={{ fontSize:9, color:'#444', marginLeft:2 }}>/min</span></> : <span style={{ color:'#333' }}>—</span>}</TD>
+            <TD mw={220}><span title={d.reason} style={{ color:'#777', fontSize:11 }}>{d.user_id ? <><span style={{ color:'#bbb', fontFamily:'monospace' }}>{d.user_id}</span>{' · '}</> : null}{d.reason}</span></TD>
+          </tr>
+        );
+      });
+      return (
+        <Panel style={{ maxHeight:'409px' }}>
+          <PanelHeader title="Live Agent Decisions" badge={badge} />
+          {loading ? <div style={{ padding:'20px', display:'flex', flexDirection:'column', gap:10 }}>{[...Array(6)].map((_,i)=><Skeleton key={i} h={14} w={`${65+i*4}%`}/>)}</div>
+            : <DataTable cols={['Time','Type','Region','Tier','Limit','Details']} rows={rows} empty="No agent decisions recorded yet" />}
+        </Panel>
+      );
+    }
+
+    // ─── OverridesTable ───────────────────────────────────────────────────────
+    function OverridesTable({ overrides, loading }) {
+      const has = overrides.length > 0;
+      const badge = has ? <Pill color="#f59e0b18" text="#f59e0b">{overrides.length} active</Pill> : <Pill>0 active</Pill>;
+      const rows = overrides.map((ov,i) => (
+        <tr key={i}>
+          <TD mono>{ov.user_id}</TD>
+          <TD mono>{ov.limit!=null ? <span style={{ color:'#f59e0b' }}>{fmtNum(ov.limit)}<span style={{ fontSize:9, color:'#555', marginLeft:2 }}>/min</span></span> : <span style={{ color:'#333' }}>—</span>}</TD>
+          <TD><RegionBadge region={ov.region}/></TD>
+          <TD><TTLCell ttl={ov.ttl}/></TD>
+          <TD mw={160}><span title={ov.reason} style={{ color:'#666', fontSize:11 }}>{ov.reason}</span></TD>
+        </tr>
+      ));
+      return (
+        <Panel className={has?'override-active':''}>
+          <PanelHeader title="Active Overrides" badge={badge} />
+          {loading ? <div style={{ padding:'20px', display:'flex', flexDirection:'column', gap:10 }}>{[...Array(4)].map((_,i)=><Skeleton key={i} h={14} w={`${55+i*10}%`}/>)}</div>
+            : <DataTable cols={['User ID','Limit','Region','TTL','Reason']} rows={rows} empty="No active user overrides" />}
+        </Panel>
+      );
+    }
+
+    // ─── CounterChart ─────────────────────────────────────────────────────────
+    const SLOT_COLORS = ['#10b981','#3b82f6','#a855f7'];
+    function CounterChart({ counters, loading, onExpand }) {
+      const top  = counters.slice(0,10);
+      const data = top.map(c => ({ name:c.user_id.length>11?c.user_id.slice(0,10)+'…':c.user_id, US:c.us, EU:c.eu, Asia:c.asia }));
+      const canExpand = !loading && top.length > 0 && onExpand;
+      const legend = <div style={{ display:'flex', gap:14 }}>{['US','EU','Asia'].map((r,i)=><div key={r} style={{ display:'flex', alignItems:'center', gap:5 }}><div style={{ width:8, height:8, borderRadius:2, background:SLOT_COLORS[i] }}/><span style={{ fontSize:10, color:'#505050' }}>{r}</span></div>)}</div>;
+      return (
+        <Panel>
+          <PanelHeader title="G-Counter Slot Distribution" badge={legend} />
+          <div
+            className={canExpand ? 'chart-hot' : ''}
+            style={{ padding:'14px 8px 12px', flex:1 }}
+            onClick={canExpand ? () => onExpand({ type:'bar', data, title:'G-Counter Slot Distribution' }) : undefined}
+            title={canExpand ? 'Click to expand' : undefined}>
+            {loading ? <div style={{ padding:'0 12px', display:'flex', flexDirection:'column', gap:10 }}>{[...Array(5)].map((_,i)=><Skeleton key={i} h={18} w={`${35+i*12}%`}/>)}</div>
+              : top.length===0 ? <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:200, color:'#3a3a3a', fontSize:13 }}>No counter data — start the traffic simulator</div>
+              : <ResponsiveContainer width="100%" height={220}><BarChart data={data} barSize={8} barCategoryGap="28%" margin={{ top:4, right:8, bottom:0, left:-16 }}><XAxis dataKey="name" tick={{ fill:'#4a4a4a', fontSize:10, fontFamily:'monospace' }} axisLine={false} tickLine={false}/><YAxis tick={{ fill:'#404040', fontSize:10 }} axisLine={false} tickLine={false}/><Tooltip contentStyle={{ background:'#111', border:'1px solid #222', borderRadius:8, fontSize:11, padding:'8px 12px' }} labelStyle={{ color:'#888', marginBottom:4 }} itemStyle={{ color:'#ccc' }} cursor={{ fill:'#ffffff06' }}/>{['US','EU','Asia'].map((key,i)=><Bar key={key} dataKey={key} fill={SLOT_COLORS[i]} radius={[2,2,0,0]} isAnimationActive={true} animationDuration={200} animationEasing="ease-out"/>)}</BarChart></ResponsiveContainer>}
+            {canExpand && <div className="expand-icon">expand</div>}
+          </div>
+        </Panel>
+      );
+    }
+
+    // ─── TopUsers ─────────────────────────────────────────────────────────────
+    function TopUsers({ counters, loading }) {
+      const max = counters.length > 0 ? counters[0].total : 1;
+      return (
+        <Panel>
+          <PanelHeader title="Top Active Users" badge={<span style={{ fontSize:11, color:'#404040' }}>by CRDT total</span>}/>
+          {loading ? <div style={{ padding:'12px 20px', display:'flex', flexDirection:'column', gap:12 }}>{[...Array(8)].map((_,i)=><Skeleton key={i} h={28}/>)}</div>
+            : counters.length===0 ? <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'48px 0', color:'#3a3a3a', fontSize:13 }}>No active users — start the traffic simulator</div>
+            : <div style={{ overflowY:'auto', maxHeight:'450px', padding:'6px 0' }}>{counters.slice(0,10).map((c,i)=>{
+                const pct=Math.round((c.total/max)*100), tc=TIER_COLOR[c.tier]||'#888';
+                return <div key={i} style={{ padding:'8px 20px', borderBottom:'1px solid #1c1c1c' }}><div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:5 }}><div style={{ display:'flex', alignItems:'center', gap:8 }}><span style={{ fontSize:10, color:'#2e2e2e', width:18, textAlign:'right' }}>{i+1}</span><span style={{ fontSize:12, color:'#ccc', fontFamily:'monospace' }}>{c.user_id}</span><span style={{ fontSize:10, color:tc, fontWeight:600 }}>{c.tier}</span></div><div style={{ display:'flex', alignItems:'center', gap:10 }}><span style={{ fontSize:10, color:'#383838' }}>{[c.us>0&&`US:${c.us}`,c.eu>0&&`EU:${c.eu}`,c.asia>0&&`AS:${c.asia}`].filter(Boolean).join(' ')}</span><span style={{ fontSize:12, color:'#aaa', fontFamily:'monospace', minWidth:48, textAlign:'right' }}>{fmtNum(c.total)}</span></div></div><div style={{ height:3, background:'#1e1e1e', borderRadius:2, marginLeft:26 }}><div style={{ height:'100%', width:`${pct}%`, background:'#3b82f6', borderRadius:2, transition:'width 0.5s ease' }}/></div></div>;
+              })}</div>}
+        </Panel>
+      );
+    }
+
+    // ─── ModelPerformancePanel ────────────────────────────────────────────────
+    const MAE_COLOR = (mae) =>
+      mae == null ? '#555' : mae < 1.0 ? '#10b981' : mae < 3.0 ? '#f59e0b' : '#ef4444';
+
+    const MAE_BADGE = (mae) =>
+      mae == null ? null
+      : mae < 1.0  ? { label: 'Accurate', icon: '✓', color: '#10b981', bg: '#10b98118' }
+      : mae < 3.0  ? { label: 'Learning', icon: '↗', color: '#f59e0b', bg: '#f59e0b18' }
+      :              { label: 'Off-track', icon: '⚠', color: '#ef4444', bg: '#ef444418' };
+
+    function MetricPill({ label, value, unit, color, mono = true }) {
+      return (
+        <div style={{ display:'flex', flexDirection:'column', gap:3, padding:'10px 14px',
+          background:'#111', borderRadius:8, border:'1px solid #1e1e1e', minWidth:100 }}>
+          <span style={{ fontSize:9.5, color:'#444', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em' }}>{label}</span>
+          <span style={{ fontSize:18, fontWeight:700, color: color ?? '#e5e7eb', letterSpacing:'-0.02em',
+            fontFamily: mono ? 'ui-monospace,SFMono-Regular,Menlo,monospace' : 'inherit',
+            fontVariantNumeric:'tabular-nums' }}>
+            {value}{unit && <span style={{ fontSize:11, color:'#4a4a4a', fontWeight:400, marginLeft:3 }}>{unit}</span>}
+          </span>
+        </div>
+      );
+    }
+
+    function PredictionChart({ history, onExpand }) {
+      if (!history || history.length < 2) {
+        return <div style={{ height:80, display:'flex', alignItems:'center', justifyContent:'center', color:'#333', fontSize:12 }}>Collecting data…</div>;
+      }
+      const pts = history.map(h => ({ t: h.tick, p: h.predicted, a: h.actual }));
+      const chartData = { type:'bar', data:pts, title:'Prediction vs Actual RPS' };
+      return (
+        <div className={onExpand ? 'chart-hot' : ''}
+          onClick={onExpand ? () => onExpand({ type:'prediction', data:pts, title:'Prediction vs Actual RPS' }) : undefined}
+          style={{ position:'relative' }}>
+          <ResponsiveContainer width="100%" height={82}>
+            <LineChart data={pts} margin={{ top:6, right:8, bottom:0, left:-28 }}>
+              <XAxis dataKey="t" hide />
+              <YAxis tick={{ fill:'#333', fontSize:9 }} axisLine={false} tickLine={false} tickFormatter={v=>fmtNum(v,1)}/>
+              <Tooltip
+                contentStyle={{ background:'#111', border:'1px solid #2a2a2a', borderRadius:8, fontSize:11, padding:'6px 12px' }}
+                labelStyle={{ color:'#888' }}
+                formatter={(v,n) => [v!=null?`${fmtNum(v,2)} RPS`:'—', n==='p'?'Predicted':'Actual']}
+              />
+              <Line type="monotone" dataKey="a" stroke="#10b981" strokeWidth={1.5}
+                dot={false} isAnimationActive={false} connectNulls={false} name="a"/>
+              <Line type="monotone" dataKey="p" stroke="#3b82f6" strokeWidth={1.5}
+                strokeDasharray="5 3" dot={false} isAnimationActive={false} connectNulls={false} name="p"/>
+            </LineChart>
+          </ResponsiveContainer>
+          {onExpand && <div className="expand-icon">expand</div>}
+        </div>
+      );
+    }
+
+    function ModelPerformancePanel({ modelData, onExpand }) {
+      const running  = modelData?.running  ?? false;
+      const warmup   = modelData?.warmup   ?? false;
+      const pred     = modelData?.predictor ?? 'ewma';
+      const m        = modelData?.metrics  ?? {};
+      const cfg      = modelData?.config   ?? {};
+      const chartKey = modelData?.chart_key ?? 'us/free';
+
+      const animMae     = useAnimatedNumber(m.mae            ?? 0, 300);
+      const animPred    = useAnimatedNumber(m.last_prediction ?? 0, 300);
+      const animSamples = useAnimatedNumber(m.samples_processed ?? 0, 300);
+
+      const mae      = m.mae != null ? animMae    : null;
+      const predVal  = m.last_prediction != null ? animPred : null;
+      const samples  = m.samples_processed != null ? Math.round(animSamples) : null;
+
+      const maeColor = MAE_COLOR(mae);
+      const badge    = MAE_BADGE(mae);
+
+      const isHW     = pred === 'holtwinters';
+      const borderColor = running ? (mae == null ? '#3b82f633' : `${maeColor}33`) : '#1d1d1d';
+      const glowColor   = running ? (mae == null ? '#3b82f608' : `${maeColor}0a`) : 'transparent';
+
+      return (
+        <div style={{ background:'#1a1a1a', border:`1px solid ${borderColor}`,
+          borderRadius:12, overflow:'hidden',
+          boxShadow: running ? `0 0 24px ${glowColor}` : 'none',
+          transition:'border-color 0.6s ease, box-shadow 0.6s ease' }}>
+
+          {/* Header row */}
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
+            padding:'12px 20px', borderBottom:'1px solid #1a1a1a' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+              <span style={{ fontSize:13, fontWeight:600, color:'#e5e7eb', letterSpacing:'-0.01em' }}>
+                Model Performance
+              </span>
+              {/* Predictor badge */}
+              <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:4,
+                background: isHW ? '#a855f718' : '#3b82f618',
+                color:      isHW ? '#a855f7'   : '#3b82f6',
+                border: `1px solid ${isHW ? '#a855f730' : '#3b82f630'}`,
+                textTransform:'uppercase', letterSpacing:'0.06em' }}>
+                {isHW ? 'Holt-Winters' : 'EWMA'}
+              </span>
+              {/* Accuracy badge */}
+              {badge && (
+                <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:4,
+                  background:badge.bg, color:badge.color,
+                  border:`1px solid ${badge.color}30`,
+                  textTransform:'uppercase', letterSpacing:'0.05em',
+                  display:'flex', alignItems:'center', gap:4 }}>
+                  <span>{badge.icon}</span>{badge.label}
+                </span>
+              )}
+              {warmup && !badge && running && (
+                <span style={{ fontSize:10, color:'#555' }}>warming up ({m.samples_processed}/{m.training_window})…</span>
+              )}
+            </div>
+            {/* Status dot */}
+            <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+              <div style={{ position:'relative', width:8, height:8 }}>
+                <div style={{ width:8, height:8, borderRadius:'50%',
+                  background: running ? '#10b981' : '#383838',
+                  boxShadow: running ? '0 0 6px #10b98188' : 'none' }}/>
+                {running && <div className="dot-breathe" style={{ position:'absolute', inset:0, borderRadius:'50%', background:'#10b981', opacity:.4 }}/>}
+              </div>
+              <span style={{ fontSize:11, color: running ? '#10b981' : '#444' }}>
+                {running ? `Active · ${chartKey}` : 'Agent offline'}
+              </span>
+            </div>
+          </div>
+
+          {/* Body */}
+          <div style={{ padding:'12px 20px 16px' }}>
+            {!running ? (
+              <div style={{ display:'flex', alignItems:'center', gap:10, color:'#3a3a3a', fontSize:13, padding:'8px 0' }}>
+                <span>Start the AI agent from the control panel to see live model performance</span>
+              </div>
+            ) : warmup && m.mae == null ? (
+              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                <div style={{ display:'flex', gap:10 }}>
+                  {[140,110,120,100].map((w,i) => <Skeleton key={i} h={52} w={w} r={8}/>)}
+                </div>
+                <Skeleton h={82} r={6}/>
+              </div>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                {/* Metrics row */}
+                <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                  <MetricPill
+                    label="MAE"
+                    value={mae != null ? mae.toFixed(4) : '—'}
+                    unit="RPS"
+                    color={maeColor}
+                  />
+                  <MetricPill
+                    label="Last Prediction"
+                    value={predVal != null ? predVal.toFixed(2) : '—'}
+                    unit="RPS"
+                    color="#3b82f6"
+                  />
+                  {isHW && m.confidence_lower != null && (
+                    <MetricPill
+                      label="95% CI"
+                      value={`${m.confidence_lower.toFixed(1)} – ${m.confidence_upper?.toFixed(1) ?? '?'}`}
+                      unit="RPS"
+                      color="#a855f7"
+                    />
+                  )}
+                  <MetricPill
+                    label="Samples"
+                    value={samples?.toLocaleString() ?? '—'}
+                    color="#888"
+                    mono={false}
+                  />
+                  {!isHW && (
+                    <MetricPill label="α (alpha)"  value={cfg.alpha?.toFixed(2) ?? '0.30'} color="#6b7280" mono={false}/>
+                  )}
+                  {isHW && (
+                    <MetricPill label="Period" value={`${cfg.seasonal_period ?? 20} ticks`} color="#6b7280" mono={false}/>
+                  )}
+                  <MetricPill
+                    label="Min Samples"
+                    value={m.training_window}
+                    color="#444"
+                    mono={false}
+                  />
+                </div>
+
+                {/* Chart */}
+                <div>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+                    <span style={{ fontSize:10, color:'#3a3a3a' }}>Prediction vs Actual · last 20 ticks</span>
+                    <div style={{ display:'flex', alignItems:'center', gap:14 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+                        <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#10b981" strokeWidth="1.5"/></svg>
+                        <span style={{ fontSize:9, color:'#444' }}>actual</span>
+                      </div>
+                      <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+                        <svg width="16" height="2"><line x1="0" y1="1" x2="16" y2="1" stroke="#3b82f6" strokeWidth="1.5" strokeDasharray="4 2"/></svg>
+                        <span style={{ fontSize:9, color:'#444' }}>predicted</span>
+                      </div>
+                    </div>
+                  </div>
+                  <PredictionChart history={m.prediction_history} onExpand={onExpand}/>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ─── PolicyModal helpers ──────────────────────────────────────────────────
+    function classifyPolicy(reason) {
+      if (!reason) return 'unknown';
+      const r = reason.toLowerCase();
+      if (r.includes('baseline') || r.includes('seed')) return 'baseline';
+      if (r.includes('spike') || r.includes('predicted') || r.includes('compensation')) return 'spike';
+      if (r.includes('noisy') || r.includes('override') || r.includes('neighbor')) return 'override';
+      return 'agent';
+    }
+
+    const POL_STYLE = {
+      baseline: { color:'#3b82f6', bg:'#3b82f60b', border:'#3b82f625', badge:'Baseline' },
+      spike:    { color:'#a855f7', bg:'#a855f70b', border:'#a855f725', badge:'AI Spike'  },
+      override: { color:'#f59e0b', bg:'#f59e0b0b', border:'#f59e0b25', badge:'AI Override' },
+      agent:    { color:'#10b981', bg:'#10b9810b', border:'#10b98125', badge:'AI Agent'  },
+      unknown:  { color:'#6b7280', bg:'#6b72800b', border:'#6b728025', badge:'?'         },
+    };
+
+    function fmtTtl(s) {
+      if (s == null || s < 0) return '∞';
+      if (s === 0) return 'expired';
+      const m = Math.floor(s / 60), sec = s % 60;
+      return m > 0 ? `${m}m ${String(sec).padStart(2, '0')}s` : `${sec}s`;
+    }
+
+    // ─── PolicyCard ───────────────────────────────────────────────────────────
+    function PolicyCard({ tier, data, isChanged }) {
+      const [displayTtl, setDisplayTtl] = useState(data?.ttl ?? -1);
+      const serverTtl = data?.ttl ?? -1;
+
+      useEffect(() => { setDisplayTtl(serverTtl); }, [serverTtl]);
+      useEffect(() => {
+        if (serverTtl <= 0) return;
+        const id = setInterval(() => setDisplayTtl(prev => Math.max(0, prev - 1)), 1000);
+        return () => clearInterval(id);
+      }, [serverTtl]);
+
+      const TC = { free:'#6b7280', premium:'#f59e0b', internal:'#10b981' };
+
+      if (!data || !data.policy) {
+        return (
+          <div style={{ background:'#0f0f0f', border:'1px solid #191919', borderRadius:8, padding:'12px 14px', minHeight:80, display:'flex', flexDirection:'column', justifyContent:'center' }}>
+            <div style={{ fontSize:9, fontWeight:700, color:TC[tier], textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>{tier}</div>
+            <div style={{ fontSize:12, color:'#2e2e2e' }}>Not set</div>
+          </div>
+        );
+      }
+
+      const p    = data.policy;
+      const type = classifyPolicy(p.reason);
+      const pt   = POL_STYLE[type] ?? POL_STYLE.unknown;
+      const isAI = type !== 'baseline';
+      const ttlColor = displayTtl >= 0 && displayTtl < 60 ? '#ef4444' : displayTtl < 300 ? '#f59e0b' : '#555';
+
+      return (
+        <div style={{
+          background: pt.bg, borderRadius:8, padding:'12px 14px',
+          border: `1px solid ${isChanged ? pt.color : pt.border}`,
+          transition: 'border-color 0.4s ease',
+          animation: isChanged ? 'overrideGlow 2s ease-out' : 'none',
+        }}>
+          {/* Tier + badge */}
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+            <span style={{ fontSize:9, fontWeight:700, color:TC[tier], textTransform:'uppercase', letterSpacing:'0.08em' }}>{tier}</span>
+            <span style={{ fontSize:8, fontWeight:700, color:pt.color, padding:'1px 5px', borderRadius:3, border:`1px solid ${pt.border}`, background:pt.bg }}>
+              {isAI ? '🤖 ' : ''}{pt.badge}
+            </span>
+          </div>
+          {/* Limit — headline number */}
+          <div style={{ marginBottom:9 }}>
+            <span style={{ fontSize:22, fontWeight:700, letterSpacing:'-0.02em', fontVariantNumeric:'tabular-nums', color: isAI ? pt.color : '#d1d5db' }}>
+              {p.limit_per_minute.toLocaleString()}
+            </span>
+            <span style={{ fontSize:10, color:'#444', marginLeft:3 }}>/min</span>
+          </div>
+          {/* Detail rows */}
+          {[
+            ['Burst',  String(p.burst),                          '#777'],
+            ['Source', (p.reason ?? '').replace(/_/g, ' '),     pt.color],
+            ['TTL',    fmtTtl(displayTtl),                      ttlColor],
+            p.algorithm !== 'token_bucket'
+              ? ['Algo', p.algorithm ?? '—', '#555'] : null,
+          ].filter(Boolean).map(([label, value, color]) => (
+            <div key={label} style={{ display:'flex', justifyContent:'space-between', fontSize:10, marginTop:3 }}>
+              <span style={{ color:'#333', flexShrink:0 }}>{label}</span>
+              <span style={{ color, textAlign:'right', maxWidth:'65%', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={value}>
+                {value}
+              </span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // ─── PolicyModal ──────────────────────────────────────────────────────────
+    const POLICY_REGIONS = ['us','eu','asia'];
+    const POLICY_TIERS   = ['free','premium','internal'];
+
+    function PolicyModal({ onClose }) {
+      const [policies,  setPolicies]  = useState(null);
+      const [loading,   setLoading]   = useState(true);
+      const [lastTs,    setLastTs]    = useState(0);
+      const [changedKeys, setChanged] = useState(new Set());
+      const [closing,   setClosing]   = useState(false);
+      const prevLimits = useRef({});
+      const closeRef   = useRef();
+
+      const close = useCallback(() => { setClosing(true); setTimeout(onClose, 220); }, [onClose]);
+
+      const load = useCallback(async () => {
+        try {
+          const r = await fetch(`${API}/api/policies/current`);
+          const d = await r.json();
+
+          // Detect changed limits
+          const changed = new Set();
+          for (const region of POLICY_REGIONS) {
+            for (const tier of POLICY_TIERS) {
+              const key = `${region}/${tier}`;
+              const newLim = d.policies[region]?.[tier]?.policy?.limit_per_minute ?? null;
+              if (prevLimits.current[key] !== undefined && prevLimits.current[key] !== newLim) {
+                changed.add(key);
+              }
+              prevLimits.current[key] = newLim;
+            }
+          }
+          if (changed.size > 0) {
+            setChanged(changed);
+            setTimeout(() => setChanged(new Set()), 2500);
+          }
+
+          setPolicies(d.policies);
+          setLastTs(d.ts);
+          setLoading(false);
+        } catch { setLoading(false); }
+      }, []);
+
+      useEffect(() => {
+        load();
+        const id = setInterval(load, 2000);
+        return () => clearInterval(id);
+      }, [load]);
+
+      useEffect(() => {
+        closeRef.current?.focus();
+        const h = (e) => {
+          if (e.key === 'Escape') close();
+          if (e.key === 'r' || e.key === 'R') load();
+        };
+        window.addEventListener('keydown', h);
+        return () => window.removeEventListener('keydown', h);
+      }, [close, load]);
+
+      const overlayAnim = closing ? 'overlayOut 0.22s ease forwards' : 'overlayIn 0.25s ease';
+      const modalAnim   = closing ? 'modalOut 0.22s cubic-bezier(0.16,1,0.3,1) forwards'
+                                  : 'modalIn 0.32s cubic-bezier(0.16,1,0.3,1)';
+
+      return (
+        <div role="dialog" aria-modal="true" aria-label="Active Rate Limit Policies"
+          onClick={close}
+          style={{ position:'fixed', inset:0, zIndex:600, background:'#000000cc',
+            backdropFilter:'blur(14px)', display:'flex', alignItems:'center', justifyContent:'center',
+            animation:overlayAnim }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ width:'92vw', maxWidth:1100, height:'85vh', background:'#141414',
+              border:'1px solid #252525', borderRadius:16, display:'flex', flexDirection:'column',
+              overflow:'hidden', boxShadow:'0 32px 100px #00000099', animation:modalAnim }}>
+
+            {/* Header */}
+            <div style={{ padding:'15px 22px', borderBottom:'1px solid #1e1e1e', flexShrink:0,
+              display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <div>
+                <div style={{ fontSize:15, fontWeight:700, color:'#f3f4f6', letterSpacing:'-0.01em' }}>
+                  Active Rate Limit Policies
+                </div>
+                <div style={{ fontSize:11, color:'#404040', marginTop:2 }}>
+                  Auto-refreshing every 2s
+                  {lastTs > 0 && ` · Updated ${fmtTime(lastTs)}`}
+                </div>
+              </div>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <button onClick={load}
+                  style={{ background:'#1a1a1a', border:'1px solid #252525', borderRadius:6,
+                    padding:'5px 11px', color:'#555', fontSize:11, cursor:'pointer', fontFamily:'inherit',
+                    transition:'color 0.15s' }}
+                  onMouseEnter={e=>e.currentTarget.style.color='#ccc'}
+                  onMouseLeave={e=>e.currentTarget.style.color='#555'}>
+                  ↻ Refresh
+                </button>
+                <button ref={closeRef} onClick={close} aria-label="Close"
+                  style={{ width:32, height:32, borderRadius:8, background:'#1e1e1e',
+                    border:'1px solid #2a2a2a', cursor:'pointer', display:'flex',
+                    alignItems:'center', justifyContent:'center', color:'#666', fontSize:20,
+                    lineHeight:1, transition:'background 0.15s, color 0.15s', outline:'none' }}
+                  onMouseEnter={e=>{e.currentTarget.style.background='#2a2a2a';e.currentTarget.style.color='#eee';}}
+                  onMouseLeave={e=>{e.currentTarget.style.background='#1e1e1e';e.currentTarget.style.color='#666';}}>
+                  ×
+                </button>
+              </div>
+            </div>
+
+            {/* 3-column body */}
+            <div style={{ flex:1, overflowY:'auto', padding:'18px 20px' }}>
+              {loading ? (
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:16 }}>
+                  {[...Array(9)].map((_,i) => <Skeleton key={i} h={160} r={8}/>)}
+                </div>
+              ) : (
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:18 }}>
+                  {POLICY_REGIONS.map(region => (
+                    <div key={region}>
+                      {/* Region header */}
+                      <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:10 }}>
+                        <div style={{ width:8, height:8, borderRadius:'50%', background:REGION_COLOR[region]??'#888', boxShadow:`0 0 6px ${REGION_COLOR[region]??'#888'}88` }}/>
+                        <span style={{ fontSize:12, fontWeight:700, color:REGION_COLOR[region]??'#888', letterSpacing:'0.02em' }}>
+                          {region.toUpperCase()} Region
+                        </span>
+                      </div>
+                      {/* 3 policy cards */}
+                      <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                        {POLICY_TIERS.map(tier => (
+                          <PolicyCard key={tier} tier={tier}
+                            data={policies?.[region]?.[tier] ?? null}
+                            isChanged={changedKeys.has(`${region}/${tier}`)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer legend */}
+            <div style={{ padding:'10px 22px', borderTop:'1px solid #191919', flexShrink:0,
+              display:'flex', alignItems:'center', gap:18 }}>
+              {Object.entries({ Baseline:'#3b82f6', 'AI Spike':'#a855f7', 'AI Override':'#f59e0b' })
+                .map(([label,color]) => (
+                  <div key={label} style={{ display:'flex', alignItems:'center', gap:5 }}>
+                    <div style={{ width:10, height:10, borderRadius:2, background:color, opacity:0.8 }}/>
+                    <span style={{ fontSize:10, color:'#444' }}>{label}</span>
+                  </div>
+                ))}
+              <span style={{ fontSize:10, color:'#282828', marginLeft:'auto' }}>
+                ESC to close · R to refresh
+              </span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── GradientBackground ───────────────────────────────────────────────────
+    function GradientBackground() {
+      return (
+        <div style={{ position:'fixed', inset:0, zIndex:0, pointerEvents:'none', overflow:'hidden' }}>
+          <div style={{ position:'absolute', top:'-25%', left:'-15%', width:'55%', height:'55%', background:'radial-gradient(ellipse at center, #0d1f3c 0%, transparent 68%)', animation:'meshFloat1 22s ease-in-out infinite', willChange:'transform' }}/>
+          <div style={{ position:'absolute', bottom:'-20%', right:'-10%', width:'50%', height:'50%', background:'radial-gradient(ellipse at center, #1a0d2e 0%, transparent 68%)', animation:'meshFloat2 28s ease-in-out infinite', willChange:'transform' }}/>
+          <div style={{ position:'absolute', top:'35%', left:'25%', width:'45%', height:'45%', background:'radial-gradient(ellipse at center, #0a1f12 0%, transparent 68%)', animation:'meshFloat3 19s ease-in-out infinite', willChange:'transform' }}/>
+        </div>
+      );
+    }
+
+    // ─── ToastStack ───────────────────────────────────────────────────────────
+    const TOAST_STYLE = {
+      success: { bg:'#10b98118', border:'#10b98144', text:'#10b981', icon:'✓' },
+      error:   { bg:'#ef444418', border:'#ef444444', text:'#ef4444', icon:'✕' },
+      warning: { bg:'#f59e0b18', border:'#f59e0b44', text:'#f59e0b', icon:'⚠' },
+      info:    { bg:'#3b82f618', border:'#3b82f644', text:'#3b82f6', icon:'i' },
+    };
+    function ToastStack({ toasts, sidebarOpen }) {
+      return (
+        <div style={{ position:'fixed', top:16, right: sidebarOpen ? 340 : 16, zIndex:1000, display:'flex', flexDirection:'column', gap:8, pointerEvents:'none', transition:'right 0.4s cubic-bezier(0.22,1,0.36,1)' }}>
+          {toasts.map(t => {
+            const c = TOAST_STYLE[t.type] || TOAST_STYLE.info;
+            return (
+              <div key={t.id} className={t.leaving?'toast-out':'toast-in'} style={{ background:c.bg, border:`1px solid ${c.border}`, borderRadius:9, padding:'9px 14px', display:'flex', alignItems:'center', gap:9, backdropFilter:'blur(8px)', minWidth:220, maxWidth:300, pointerEvents:'auto' }}>
+                <span style={{ color:c.text, fontWeight:700, fontSize:13, flexShrink:0 }}>{c.icon}</span>
+                <span style={{ fontSize:12, color:'#d1d5db', lineHeight:1.4 }}>{t.msg}</span>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    // ─── ToggleBtn ────────────────────────────────────────────────────────────
+    // Fixed gear button — only visible when sidebar is closed.
+    function ToggleBtn({ onClick }) {
+      const ref = useRef();
+      useMagnetic(ref, { radius:55, strength:0.35 });
+      return (
+        <button ref={ref} onClick={onClick} className="mag-btn"
+          style={{ position:'fixed', top:16, right:16, zIndex:300, width:38, height:38,
+            background:'#161616', border:'1px solid #252525', borderRadius:9,
+            cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center',
+            color:'#6b7280', fontSize:16, animation:'toggleBeam 3.5s ease-in-out infinite' }}>
+          ⚙
+        </button>
+      );
+    }
+
+    // ─── SidebarSection (shimmer header) ─────────────────────────────────────
+    function SidebarSection({ title, children, delay=0 }) {
+      return (
+        <div className="section-stagger" style={{ animationDelay:`${delay}ms`, borderBottom:'1px solid #181818', padding:'14px 16px' }}>
+          <div className="section-shimmer" style={{ fontSize:9.5, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:11 }}>
+            {title}
+          </div>
+          {children}
+        </div>
+      );
+    }
+
+    // ─── MagneticBtn (replaces CtrlBtn) ──────────────────────────────────────
+    const BTN_V = {
+      default: { bg:'#1a1a1a', text:'#c4c8cc', border:'#282828' },
+      green:   { bg:'#10b98115', text:'#10b981', border:'#10b98138' },
+      red:     { bg:'#ef444415', text:'#ef4444', border:'#ef444438' },
+      blue:    { bg:'#3b82f615', text:'#3b82f6', border:'#3b82f638' },
+      orange:  { bg:'#f59e0b15', text:'#f59e0b', border:'#f59e0b38' },
+    };
+    function MagneticBtn({ children, onClick, disabled, loading:busy, variant='default', fullWidth=false, successKey=0 }) {
+      const ref  = useRef();
+      const [ripples, setRipples] = useState([]);
+      const [pulse,   setPulse]   = useState(false);
+      const prevKey = useRef(0);
+
+      useMagnetic(ref, { radius:70, strength:0.22 });
+
+      useEffect(() => {
+        if (successKey > prevKey.current) {
+          prevKey.current = successKey;
+          setPulse(true);
+          const t = setTimeout(() => setPulse(false), 900);
+          return () => clearTimeout(t);
+        }
+      }, [successKey]);
+
+      const fire = (e) => {
+        if (disabled || busy) return;
+        const rect = ref.current.getBoundingClientRect();
+        const id   = Date.now();
+        setRipples(p => [...p, { id, x:e.clientX-rect.left, y:e.clientY-rect.top }]);
+        setTimeout(() => setRipples(p => p.filter(r=>r.id!==id)), 700);
+        onClick?.(e);
+      };
+      const v = BTN_V[variant] ?? BTN_V.default;
+      return (
+        <button ref={ref} onClick={fire} disabled={disabled||busy} className="mag-btn"
+          style={{ background:v.bg, border:`1px solid ${pulse ? v.text : v.border}`, borderRadius:7,
+            color:v.text, fontSize:12, fontWeight:600, padding:'8px 12px',
+            width:fullWidth?'100%':'auto', display:'flex', alignItems:'center', justifyContent:'center', gap:7,
+            cursor:(disabled||busy)?'not-allowed':'pointer', opacity:disabled&&!busy?.38:1,
+            position:'relative', overflow:'hidden',
+            animation:pulse?'successPulse 0.8s ease':'none' }}>
+          {ripples.map(r=>(
+            <div key={r.id} style={{ position:'absolute', left:r.x, top:r.y, width:4, height:4, borderRadius:'50%', background:`${v.text}30`, transform:'translate(-50%,-50%)', animation:'rippleExpand 0.7s ease-out forwards', pointerEvents:'none' }}/>
+          ))}
+          {busy ? <GradientSpinner color={v.text} size={12}/> : null}
+          {children}
+        </button>
+      );
+    }
+
+    // ─── StatusDot ────────────────────────────────────────────────────────────
+    function StatusDot({ running, label, sublabel }) {
+      const color = running ? '#10b981' : '#ef4444';
+      return (
+        <div style={{ display:'flex', alignItems:'center', gap:9, padding:'8px 10px', background:'#111', borderRadius:8, border:'1px solid #1e1e1e' }}>
+          <div style={{ position:'relative', width:10, height:10, flexShrink:0 }}>
+            <div style={{ width:10, height:10, borderRadius:'50%', background:color, boxShadow:`0 0 6px ${color}88` }}/>
+            {running && <div className="dot-breathe" style={{ position:'absolute', inset:0, borderRadius:'50%', background:color, opacity:.4 }}/>}
+          </div>
+          <div>
+            <div style={{ fontSize:12, fontWeight:600, color:running?'#10b981':'#777' }}>{label}</div>
+            {sublabel && <div style={{ fontSize:10, color:'#444', marginTop:1 }}>{sublabel}</div>}
+          </div>
+        </div>
+      );
+    }
+
+    // ─── ScenarioBtn (border beam + ripple + magnetic) ────────────────────────
+    function ScenarioBtn({ scenario, selected, simRunning, runningScenario, onClick }) {
+      const ref = useRef();
+      const [ripples, setRipples] = useState([]);
+      const isSelected  = selected === scenario.id;
+      const isLive      = simRunning && runningScenario === scenario.id;
+
+      useMagnetic(ref, { radius:65, strength:0.18 });
+
+      const fire = (e) => {
+        if (simRunning) return;
+        const rect = ref.current.getBoundingClientRect();
+        const id = Date.now();
+        setRipples(p => [...p, { id, x:e.clientX-rect.left, y:e.clientY-rect.top }]);
+        setTimeout(() => setRipples(p => p.filter(r=>r.id!==id)), 700);
+        onClick(scenario.id);
+      };
+
+      // beam wrapper: 1.5px "border" made of a parent gradient div
+      return (
+        <div style={{
+          padding: isSelected ? '1.5px' : 0,
+          borderRadius: 9,
+          background: isSelected ? `linear-gradient(90deg, ${scenario.color}, #a855f7, ${scenario.color})` : 'transparent',
+          backgroundSize: '300% 100%',
+          animation: isSelected ? 'beamSweep 2.5s linear infinite' : 'none',
+          boxShadow: isLive ? `0 0 18px ${scenario.color}40` : 'none',
+          transition: 'box-shadow 0.3s ease',
+        }}>
+          <button ref={ref} onClick={fire} disabled={simRunning} className="scn-btn"
+            style={{ background:isSelected?`${scenario.color}10`:'#0f0f0f', border:isSelected?'none':'1px solid #1e1e1e',
+              borderRadius:isSelected?7.5:8, padding:'9px 10px', textAlign:'left', width:'100%',
+              color:'inherit', position:'relative', overflow:'hidden',
+              cursor:simRunning?'not-allowed':'pointer', opacity:simRunning&&!isLive?.5:1 }}>
+            {ripples.map(r=>(
+              <div key={r.id} style={{ position:'absolute', left:r.x, top:r.y, width:4, height:4, borderRadius:'50%', background:`${scenario.color}40`, transform:'translate(-50%,-50%)', animation:'rippleExpand 0.7s ease-out forwards', pointerEvents:'none' }}/>
+            ))}
+            <div style={{ fontSize:11, fontWeight:700, color:isSelected?scenario.color:'#9ca3af', marginBottom:2, display:'flex', alignItems:'center', gap:6 }}>
+              {scenario.label}
+              {isLive && <span style={{ fontSize:8, background:`${scenario.color}22`, color:scenario.color, padding:'1px 5px', borderRadius:3, fontWeight:800, letterSpacing:'0.05em' }}>LIVE</span>}
+            </div>
+            <div style={{ fontSize:9, color:'#383838', lineHeight:1.3 }}>{scenario.desc}</div>
+          </button>
+        </div>
+      );
+    }
+
+    // ─── ContainerRow ─────────────────────────────────────────────────────────
+    const isContainerUp = (status='') => status === 'ok' || status.startsWith('Up');
+    function ContainerRow({ name, status }) {
+      const up = isContainerUp(status);
+      const color = up ? '#10b981' : '#ef4444';
+      const label = up ? (status === 'ok' ? 'ok' : status.replace(/^Up /,'')) : 'down';
+      return (
+        <div style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 0', borderBottom:'1px solid #161616' }}>
+          <div style={{ width:6, height:6, borderRadius:'50%', background:color, flexShrink:0, boxShadow:up?`0 0 5px ${color}66`:'none' }}/>
+          <span style={{ fontSize:11, color:'#888', fontFamily:'monospace', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{name}</span>
+          <span style={{ fontSize:10, color:up?'#10b98170':'#ef444470' }}>{label}</span>
+        </div>
+      );
+    }
+
+    // ─── LogEntry ─────────────────────────────────────────────────────────────
+    function LogEntry({ entry }) {
+      const c = { success:'#10b981', error:'#ef4444', warning:'#f59e0b', info:'#3b82f6' }[entry.type]||'#6b7280';
+      return (
+        <div className="row-new" style={{ display:'flex', gap:6, padding:'3px 0', borderBottom:'1px solid #141414' }}>
+          <span style={{ fontSize:9, color:'#2e2e2e', fontFamily:'monospace', flexShrink:0, paddingTop:1 }}>{fmtTime(entry.ts)}</span>
+          <span style={{ fontSize:11, color:c, lineHeight:1.4 }}>{entry.msg}</span>
+        </div>
+      );
+    }
+
+    // ─── ControlSidebar ───────────────────────────────────────────────────────
+    function ControlSidebar({ ctrlStatus, logs, addLog, addToast, refreshCtrl, open, onClose, onViewPolicies }) {
+      const [predictor, setPredictor] = useState('ewma');
+      const [agentInt,  setAgentInt]  = useState(15);
+      const [scenario,  setScenario]  = useState(null);
+      const [duration,  setDuration]  = useState(60);
+      const [busy,      setBusy]      = useState({});
+      const [successK,  setSuccessK]  = useState({});
+
+      // Scenario execution tracking
+      const [runningScenario, setRunningScenario] = useState(null);
+      const [simStart,        setSimStart]        = useState(null);
+      const [simDur,          setSimDur]          = useState(null);
+      const [countdown,       setCountdown]       = useState(null);
+
+      const setLoad = (k,v) => setBusy(p=>({...p,[k]:v}));
+      const bumpKey = (k)   => setSuccessK(p=>({...p,[k]:(p[k]??0)+1}));
+
+      // Detect simulator completion and auto-deselect
+      const simRunning  = ctrlStatus.simulator?.running;
+      const prevRunRef  = useRef(false);
+      useEffect(() => {
+        if (prevRunRef.current && !simRunning && runningScenario) {
+          addToast(`✓ ${runningScenario} completed`, 'success');
+          addLog(`✓ ${runningScenario} completed`, 'success');
+          setRunningScenario(null);
+          setScenario(null);
+          setSimStart(null);
+          setSimDur(null);
+        }
+        prevRunRef.current = simRunning;
+      }, [simRunning]); // eslint-disable-line
+
+      // Countdown ticker
+      useEffect(() => {
+        if (!simStart || !simDur || !simRunning) { setCountdown(null); return; }
+        let tid;
+        const tick = () => {
+          const left = Math.max(0, simDur - (Date.now()-simStart)/1000);
+          setCountdown(Math.ceil(left));
+          if (left > 0) tid = setTimeout(tick, 350);
+        };
+        tick();
+        return () => clearTimeout(tid);
+      }, [simStart, simDur, simRunning]);
+
+      // Generic POST with loading + toast + log + success pulse
+      const doPost = async (key, path, body, okMsg, logMsg) => {
+        setLoad(key, true);
+        try {
+          const d = await ctrlPost(path, body);
+          addToast(okMsg, 'success');
+          addLog(logMsg + (d.pid?` (pid ${d.pid})`:d.policies_written!=null?` — ${d.policies_written} written`:''), 'success');
+          bumpKey(key);
+          setTimeout(refreshCtrl, 400);
+          return d;
+        } catch (e) {
+          addToast(e.message, 'error');
+          addLog(`Error: ${e.message}`, 'error');
+        } finally {
+          setLoad(key, false);
+        }
+      };
+
+      const startAgent = () => doPost('agentStart', '/api/control/agent/start',
+        { predictor, interval:Number(agentInt) }, 'Agent started', `Agent started (${predictor}, ${agentInt}s)`);
+
+      const stopAgent = () => doPost('agentStop', '/api/control/agent/stop',
+        null, 'Agent stopped', 'Agent stopped');
+
+      const startScenario = async () => {
+        if (!scenario) { addToast('Select a scenario first', 'warning'); return; }
+        const d = await doPost('sim', '/api/control/scenario',
+          { scenario, duration }, `Scenario started: ${scenario}`, `Scenario: ${scenario} (${duration}s)`);
+        if (d) {
+          setRunningScenario(scenario);
+          setSimStart(Date.now());
+          setSimDur(duration);
+        }
+      };
+
+      const stopScenario = async () => {
+        const d = await doPost('simStop', '/api/control/scenario/stop',
+          { clear_overrides: true }, 'Scenario stopped', 'Scenario stopped — overrides cleared');
+        if (d) {
+          setRunningScenario(null);
+          setSimStart(null);
+          setSimDur(null);
+          setCountdown(null);
+        }
+      };
+
+      const seedPolicies    = () => doPost('seed',  '/api/control/policies/seed',   null, 'Policies seeded (9 written)', 'Policies seeded');
+      const flushRedis      = () => doPost('flush', '/api/control/redis/flush',     null, 'All Redis data cleared',       'Redis flushed (FLUSHALL ×3)');
+      const restartGateways = () => doPost('gw',    '/api/control/gateways/restart', null, 'Gateways restarted',          'Gateways restarted (us/eu/asia)');
+
+      const { agent={}, simulator={}, containers=[] } = ctrlStatus;
+      const uptime  = useAnimatedNumber(agent.uptime_seconds??0, 500);
+      const allUp   = containers.length > 0 && containers.every(c=>isContainerUp(c.status));
+      const downN   = containers.filter(c=>!isContainerUp(c.status)).length;
+      const sliderPct = Math.round(((duration-30)/(300-30))*100);
+      const progress  = simDur && countdown!=null ? Math.min(100, ((simDur-countdown)/simDur)*100) : 0;
+
+      return (
+        <div style={{ position:'fixed', top:0, right:0, bottom:0, width:320,
+          background:'#111', borderLeft:'1px solid #1d1d1d', zIndex:200,
+          display:'flex', flexDirection:'column', overflowY:'auto',
+          transform: open ? 'translateX(0)' : 'translateX(100%)',
+          transition: 'transform 0.42s cubic-bezier(0.22,1,0.36,1)',
+          willChange: 'transform' }}>
+
+          {/* Header */}
+          <div style={{ padding:'14px 16px', borderBottom:'1px solid #1d1d1d', flexShrink:0, background:'#0d0d0d', position:'sticky', top:0, zIndex:10, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <div>
+              <div style={{ fontSize:12, fontWeight:700, color:'#e5e7eb', letterSpacing:'-0.01em' }}>Control Panel</div>
+              <div style={{ fontSize:10, color:'#383838', marginTop:1 }}>Demo controls</div>
+            </div>
+            <button onClick={onClose}
+              style={{ width:28, height:28, borderRadius:6, background:'#1a1a1a', border:'1px solid #252525', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#555', fontSize:16, transition:'color 0.15s, background 0.15s' }}
+              onMouseEnter={e=>{e.currentTarget.style.color='#ccc';e.currentTarget.style.background='#222';}}
+              onMouseLeave={e=>{e.currentTarget.style.color='#555';e.currentTarget.style.background='#1a1a1a';}}>
+              ×
+            </button>
+          </div>
+
+          {/* ── Section 1: Agent Control ────────────────────────────────── */}
+          <SidebarSection title="Agent Control" delay={60}>
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              <div>
+                <label style={{ fontSize:10, color:'#484848', display:'block', marginBottom:4 }}>Predictor model</label>
+                <select className="ctrl-select" value={predictor} onChange={e=>setPredictor(e.target.value)}>
+                  <option value="ewma">EWMA (fast, reactive)</option>
+                  <option value="holtwinters">Holt-Winters (seasonal)</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize:10, color:'#484848', display:'block', marginBottom:4 }}>Tick interval (seconds)</label>
+                <input className="ctrl-input" type="number" min={5} max={60} value={agentInt}
+                  onChange={e=>setAgentInt(e.target.value)}/>
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
+                <MagneticBtn variant="green" onClick={startAgent} loading={busy.agentStart} disabled={agent.running} successKey={successK.agentStart??0}>
+                  Start Agent
+                </MagneticBtn>
+                <MagneticBtn variant="red" onClick={stopAgent} loading={busy.agentStop} disabled={!agent.running} successKey={successK.agentStop??0}>
+                  Stop Agent
+                </MagneticBtn>
+              </div>
+              <StatusDot
+                running={agent.running}
+                label={agent.running ? 'Running' : 'Stopped'}
+                sublabel={agent.running
+                  ? `pid ${agent.pid} · ${fmtUptime(Math.round(uptime))}`
+                  : 'Agent not running'}
+              />
+            </div>
+          </SidebarSection>
+
+          {/* ── Section 2: Traffic Scenarios ─────────────────────────── */}
+          <SidebarSection title="Traffic Scenarios" delay={120}>
+            <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:7 }}>
+                {SCENARIOS.map(s => (
+                  <ScenarioBtn key={s.id} scenario={s} selected={scenario}
+                    simRunning={simRunning} runningScenario={runningScenario}
+                    onClick={setScenario}/>
+                ))}
+              </div>
+
+              {/* Progress bar + countdown */}
+              {simRunning && runningScenario && (
+                <div>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:5 }}>
+                    <span style={{ fontSize:10, color:'#555' }}>{runningScenario}</span>
+                    {countdown!=null && <span style={{ fontSize:11, color:'#3b82f6', fontVariantNumeric:'tabular-nums', fontWeight:600 }}>{countdown}s left</span>}
+                  </div>
+                  <div style={{ height:3, background:'#1a1a1a', borderRadius:2 }}>
+                    <div style={{ height:'100%', width:`${progress}%`, background:'linear-gradient(90deg,#3b82f6,#a855f7)', borderRadius:2, transition:'width 0.35s linear' }}/>
+                  </div>
+                </div>
+              )}
+
+              {/* Duration slider */}
+              <div>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:5 }}>
+                  <label style={{ fontSize:10, color:'#484848' }}>Duration</label>
+                  <span style={{ fontSize:12, color:'#3b82f6', fontVariantNumeric:'tabular-nums', fontWeight:600 }}>{duration}s</span>
+                </div>
+                <input type="range" min={30} max={300} step={30} value={duration}
+                  onChange={e=>setDuration(Number(e.target.value))}
+                  style={{ width:'100%', cursor:'pointer',
+                    background:`linear-gradient(to right,#3b82f6 ${sliderPct}%,#1e1e1e ${sliderPct}%)`,
+                    borderRadius:2, height:4 }}/>
+                <div style={{ display:'flex', justifyContent:'space-between', marginTop:4 }}>
+                  {[30,60,120,180,300].map(v=>(
+                    <span key={v} onClick={()=>!simRunning&&setDuration(v)}
+                      style={{ fontSize:9, color:duration===v?'#3b82f6':'#2e2e2e', cursor:simRunning?'default':'pointer', fontVariantNumeric:'tabular-nums', transition:'color 0.15s' }}>
+                      {v}s
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
+                <MagneticBtn variant="blue" onClick={startScenario}
+                  loading={busy.sim} disabled={simRunning||!scenario} successKey={successK.sim??0}>
+                  {simRunning ? `Running · pid ${simulator.pid??'…'}` : (scenario ? `Start ${scenario}` : 'Select scenario')}
+                </MagneticBtn>
+                <MagneticBtn variant="red" onClick={stopScenario}
+                  loading={busy.simStop} disabled={!simRunning} successKey={successK.simStop??0}>
+                  Stop
+                </MagneticBtn>
+              </div>
+            </div>
+          </SidebarSection>
+
+          {/* ── Section 3: Quick Actions ──────────────────────────────── */}
+          <SidebarSection title="Quick Actions" delay={180}>
+            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+              <MagneticBtn variant="orange" fullWidth onClick={seedPolicies} loading={busy.seed} successKey={successK.seed??0}>
+                Seed Demo Policies
+              </MagneticBtn>
+              <MagneticBtn variant="blue" fullWidth onClick={onViewPolicies}>
+                View Current Policies
+              </MagneticBtn>
+              <MagneticBtn variant="red" fullWidth onClick={flushRedis} loading={busy.flush} successKey={successK.flush??0}>
+                Flush All Redis
+              </MagneticBtn>
+              <MagneticBtn fullWidth onClick={restartGateways} loading={busy.gw} successKey={successK.gw??0}>
+                Restart Gateways
+              </MagneticBtn>
+            </div>
+          </SidebarSection>
+
+          {/* ── Section 4: Container Health ───────────────────────────── */}
+          <SidebarSection title="Container Health" delay={240}>
+            <div style={{ marginBottom:9, padding:'7px 10px',
+              background:allUp?'#10b98112':'#ef444412',
+              border:`1px solid ${allUp?'#10b98130':'#ef444430'}`,
+              borderRadius:7, fontSize:11,
+              color:allUp?'#10b981':'#ef4444', fontWeight:600 }}>
+              {containers.length===0 ? 'Checking…'
+                : allUp ? `All ${containers.length} containers healthy`
+                : `${downN} container${downN!==1?'s':''} down`}
+            </div>
+            <div style={{ maxHeight:200, overflowY:'auto' }}>
+              {containers.length===0
+                ? [...Array(5)].map((_,i)=><div key={i} style={{ marginBottom:6 }}><Skeleton h={18}/></div>)
+                : containers.map((c,i)=><ContainerRow key={i} name={c.name} status={c.status}/>)}
+            </div>
+          </SidebarSection>
+
+          {/* ── Section 5: System Logs ────────────────────────────────── */}
+          <SidebarSection title="System Logs" delay={300}>
+            <div style={{ maxHeight:160, overflowY:'auto', display:'flex', flexDirection:'column-reverse' }}>
+              {logs.length===0
+                ? <div style={{ fontSize:11, color:'#2a2a2a', textAlign:'center', padding:'16px 0' }}>No actions yet</div>
+                : [...logs].reverse().map(e=><LogEntry key={e.id} entry={e}/>)}
+            </div>
+          </SidebarSection>
+        </div>
+      );
+    }
+
+    // ─── TierHealthPanel ──────────────────────────────────────────────────────
+    const RTooltip = Tooltip;
+
+    function TierHealthPanel({ latency, loading, onExpand, totalRps = 0, agentRunning = false }) {
+      const noTraffic = totalRps < 0.1;
+      const ms       = noTraffic ? 0 : (latency?.tier_latency_ms ?? 0);
+      const count    = latency?.congestion_count ?? 0;
+      const abusers  = latency?.abusers ?? [];
+      const spark    = (latency?.tier_latency_spark ?? []).map(p => ({ t: p.t, v: p.v }));
+
+      const color  = noTraffic ? '#3a3a3a' : ms >= 100 ? '#ef4444' : ms >= 20 ? '#f59e0b' : '#10b981';
+      const label  = noTraffic ? 'NO TRAFFIC' : ms >= 100 ? 'DEGRADED' : ms >= 20 ? 'ELEVATED' : 'HEALTHY';
+      const icon   = noTraffic ? '⚫' : ms >= 100 ? '🔴' : ms >= 20 ? '🟡' : '🟢';
+      const animMs = useAnimatedNumber(ms);
+
+      const expandData = { type:'sparkline', title:'Tier Backend Latency', data:spark, color, unit:'ms' };
+
+      if (noTraffic) return (
+        <Panel>
+          <PanelHeader title="Legitimate User Health" badge={
+            <span style={{ fontSize:10, fontWeight:700, color:'#3a3a3a', letterSpacing:'0.10em',
+              padding:'2px 8px', borderRadius:4, background:'#1e1e1e', border:'1px solid #2a2a2a' }}>
+              ⚫ US · FREE TIER
+            </span>
+          }/>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'center', minHeight:88, gap:10 }}>
+            <div style={{ fontSize:13, color:'#333' }}>No active traffic</div>
+            <div style={{ fontSize:11, color:'#282828' }}>— start a scenario to see tier latency</div>
+          </div>
+        </Panel>
+      );
+
+      return (
+        <Panel>
+          <PanelHeader title="Legitimate User Health" badge={
+            <span style={{ fontSize:10, fontWeight:700, color, letterSpacing:'0.10em',
+              padding:'2px 8px', borderRadius:4, background:`${color}18`, border:`1px solid ${color}35` }}>
+              {icon} US · FREE TIER
+            </span>
+          }/>
+          <div style={{ display:'flex', gap:0, minHeight:88 }}>
+
+            {/* Status badge */}
+            <div style={{ minWidth:140, display:'flex', flexDirection:'column', alignItems:'center',
+              justifyContent:'center', gap:4, borderRight:'1px solid #1a1a1a', padding:'0 20px' }}>
+              <div style={{ fontSize:30, fontWeight:800, color, fontVariantNumeric:'tabular-nums',
+                transition:'color 0.5s ease' }}>
+                {animMs.toFixed(0)}<span style={{ fontSize:14, fontWeight:500, color:'#555', marginLeft:2 }}>ms</span>
+              </div>
+              <div style={{ fontSize:9, fontWeight:700, letterSpacing:'0.14em', color,
+                padding:'2px 7px', borderRadius:3, background:`${color}15`, border:`1px solid ${color}30` }}>
+                {label}
+              </div>
+              <div style={{ fontSize:9, color:'#333', marginTop:2 }}>backend latency</div>
+            </div>
+
+            {/* Sparkline */}
+            <div style={{ flex:1, minWidth:0, padding:'10px 14px 6px', cursor:'pointer' }}
+              onClick={() => onExpand?.(expandData)}>
+              <div style={{ fontSize:9, color:'#2e2e2e', marginBottom:2, letterSpacing:'0.08em' }}>
+                LATENCY HISTORY (90s) — click to expand
+              </div>
+              {spark.length === 0
+                ? <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:56, color:'#2a2a2a', fontSize:11 }}>
+                    No data — run noisy_neighbor scenario
+                  </div>
+                : <RC2 width="100%" height={56}>
+                    <LineChart data={spark}>
+                      <Line type="monotone" dataKey="v" stroke={color} strokeWidth={1.5}
+                        dot={false} isAnimationActive={false}/>
+                      <ReferenceLine y={100} stroke="#ef444435" strokeDasharray="3 3"/>
+                      <ReferenceLine y={20}  stroke="#10b98130" strokeDasharray="3 3"/>
+                      <RTooltip content={({ payload }) =>
+                        payload?.[0]
+                          ? <div style={{ fontSize:10, color:'#aaa', padding:'2px 6px',
+                              background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:4 }}>
+                              {Number(payload[0].value).toFixed(0)}ms
+                            </div>
+                          : null
+                      }/>
+                    </LineChart>
+                  </RC2>
+              }
+            </div>
+
+            {/* Abuser status column */}
+            <div style={{ minWidth:200, borderLeft:'1px solid #1a1a1a', padding:'10px 14px',
+              display:'flex', flexDirection:'column', gap:5 }}>
+              <div style={{ fontSize:9, fontWeight:700, color:'#2e2e2e', letterSpacing:'0.10em', marginBottom:2 }}>
+                ACTIVE OVERRIDES
+              </div>
+              {loading
+                ? [0,1].map(i => <Skeleton key={i} h={22}/>)
+                : abusers.length === 0
+                  ? <div style={{ fontSize:11, color:'#2a2a2a', marginTop:4 }}>
+                      {ms < 20
+                        ? <span style={{ color:'#10b98199' }}>✓ No abusers detected</span>
+                        : !agentRunning
+                          ? <span style={{ color:'#ef444499' }}>Agent not running</span>
+                          : <span style={{ color:'#f59e0b99' }}>Tier congestion — no single abuser</span>}
+                    </div>
+                  : abusers.map(a => (
+                    <div key={a.user_id} style={{ display:'flex', alignItems:'center', gap:7,
+                      background:'#ef444412', border:'1px solid #ef444430', borderRadius:6,
+                      padding:'4px 8px', animation:'overrideGlow 2.5s ease-in-out infinite' }}>
+                      <div style={{ width:5, height:5, borderRadius:'50%', background:'#ef4444', flexShrink:0 }}/>
+                      <span style={{ fontSize:10, fontFamily:'monospace', color:'#f3f4f6', flex:1 }}>
+                        {a.user_id}
+                      </span>
+                      <span style={{ fontSize:9, color:'#ef4444', fontWeight:700 }}>
+                        {a.limit_per_minute}/min
+                      </span>
+                    </div>
+                  ))
+              }
+              {abusers.length > 0 && ms < 20 && (
+                <div style={{ fontSize:9, color:'#10b981', marginTop:3, lineHeight:1.4 }}>
+                  ✓ Throttled — tier recovered
+                </div>
+              )}
+              <div style={{ marginTop:'auto', fontSize:9, color:'#252525' }}>
+                fires &gt; 250 req / 30s window
+              </div>
+            </div>
+
+          </div>
+        </Panel>
+      );
+    }
+
+    // ─── Header ───────────────────────────────────────────────────────────────
+    function Header({ connected, lastUpdate }) {
+      return (
+        <div style={{ background:'#0e0e0ecc', backdropFilter:'blur(12px)', borderBottom:'1px solid #1a1a1a',
+          padding:'14px 32px', display:'flex', justifyContent:'space-between', alignItems:'center',
+          position:'sticky', top:0, zIndex:100 }}>
+          <div>
+            <h1 style={{ fontSize:17, fontWeight:700, letterSpacing:'-0.02em',
+              background:'linear-gradient(90deg,#e5e7eb 60%,#6b7280)',
+              WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }}>
+              Geo-Distributed Rate Limiter
+            </h1>
+            <p style={{ fontSize:11, color:'#383838', marginTop:2 }}>AI-powered traffic control · 3-region cluster · CRDT sync</p>
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:20 }}>
+            {lastUpdate && <span style={{ fontSize:11, color:'#333' }}>Updated {fmtTime(lastUpdate)}</span>}
+            <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+              <div style={{ width:7, height:7, borderRadius:'50%', background:connected?'#10b981':'#ef4444',
+                boxShadow:connected?'0 0 8px #10b981bb':'none',
+                animation:connected?'dotPulse 2.5s ease-in-out infinite':'none' }}/>
+              <span style={{ fontSize:12, color:connected?'#10b981':'#ef4444' }}>{connected?'Live':'Disconnected'}</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function Footer({ connected }) {
+      return (
+        <div style={{ textAlign:'center', padding:'20px 0 28px', borderTop:'1px solid #131313', marginTop:8 }}>
+          <span style={{ fontSize:11, color:'#242424' }}>
+            Geo-Distributed Rate Limiter · CMPE 273 · Refreshes every 5s · {connected?'● Live':'○ Offline'}
+          </span>
+        </div>
+      );
+    }
+
+    // ─── App ──────────────────────────────────────────────────────────────────
+    function App() {
+      const [state, setState] = useState({ metrics:null, decisions:[], overrides:[], counters:[], connected:false, loading:true, lastUpdate:null });
+      const [ctrlStatus, setCtrlStatus] = useState({ agent:{running:false}, simulator:{running:false}, containers:[] });
+      const [logs,        setLogs]       = useState([]);
+      const [toasts,      setToasts]     = useState([]);
+      const [sidebarOpen,   setSidebarOpen]   = useState(true);
+      const [modal,         setModal]         = useState(null);
+      const [policiesOpen,  setPoliciesOpen]  = useState(false);
+      const [modelMetrics,  setModelMetrics]  = useState(null);
+      const [latencyData,   setLatencyData]   = useState(null);
+      const [lastActiveTs,  setLastActiveTs]  = useState(0);
+
+      const openModal  = useCallback((chart) => setModal(chart), []);
+      const closeModal = useCallback(() => setModal(null), []);
+
+      const load = useCallback(async () => {
+        try {
+          const r = await fetchAll();
+          setState(p => ({ ...p, ...r, connected:r.ok, loading:false, lastUpdate:Date.now() }));
+          if ((r.metrics?.total_rps ?? 0) > 0.05) setLastActiveTs(Date.now());
+        } catch { setState(p => ({ ...p, connected:false, loading:false })); }
+      }, []);
+
+      const loadCtrl = useCallback(async () => {
+        try { setCtrlStatus(await fetchCtrlStatus()); } catch {}
+      }, []);
+
+      const loadModel = useCallback(async () => {
+        try { setModelMetrics(await fetchModelMetrics()); } catch {}
+      }, []);
+
+      const loadLatency = useCallback(async () => {
+        try { setLatencyData(await fetchLatency()); } catch {}
+      }, []);
+
+      useEffect(() => {
+        load();        const i1 = setInterval(load,        REFRESH_MS);
+        loadCtrl();    const i2 = setInterval(loadCtrl,    REFRESH_MS);
+        loadModel();   const i3 = setInterval(loadModel,   REFRESH_MS);
+        loadLatency(); const i4 = setInterval(loadLatency, REFRESH_MS);
+        return () => { clearInterval(i1); clearInterval(i2); clearInterval(i3); clearInterval(i4); };
+      }, [load, loadCtrl, loadModel, loadLatency]);
+
+      const addLog = useCallback((msg, type='info') => {
+        setLogs(p => [...p.slice(-49), { id:Date.now()+Math.random(), ts:Date.now(), msg, type }]);
+      }, []);
+
+      const addToast = useCallback((msg, type='info') => {
+        const id = Date.now()+Math.random();
+        setToasts(p => [...p, { id, msg, type }]);
+        setTimeout(() => setToasts(p => p.filter(t=>t.id!==id)), 3500);
+      }, []);
+
+      const { metrics, decisions, overrides, counters, connected, loading, lastUpdate } = state;
+      const rpsSpk   = metrics?.sparklines?.rps        ?? [];
+      const allowSpk = metrics?.sparklines?.allow_rate ?? [];
+      const usersSpk = metrics?.sparklines?.users      ?? [];
+      const isLive   = (Date.now() - lastActiveTs) < 10000;
+
+      return (
+        <div style={{ minHeight:'100vh', background:'#0a0a0a', position:'relative' }}>
+          <GradientBackground/>
+          <ToastStack toasts={toasts} sidebarOpen={sidebarOpen}/>
+          {modal        && <ChartModal  chart={modal} onClose={closeModal}/>}
+          {policiesOpen && <PolicyModal onClose={() => setPoliciesOpen(false)}/>}
+
+          {/* Toggle button — only visible when sidebar is closed */}
+          {!sidebarOpen && <ToggleBtn onClick={()=>setSidebarOpen(true)}/>}
+
+          {/* Main content — shrinks to make room for sidebar */}
+          <div style={{ position:'relative', zIndex:1,
+            paddingRight: sidebarOpen ? 320 : 0,
+            transition: 'padding-right 0.42s cubic-bezier(0.22,1,0.36,1)' }}>
+
+            <Header connected={connected} lastUpdate={lastUpdate}/>
+
+            <div style={{ padding:'24px 32px 0', display:'flex', flexDirection:'column', gap:16 }}>
+
+              {(() => {
+                // Compute peak60s for the Tier Latency tile so the demo
+                // viewer doesn't miss the spike if they look up a few seconds
+                // late after the agent has already kicked in. Peak is shown
+                // only when it's >10% higher than the current reading.
+                const sparkRaw = latencyData?.tier_latency_spark ?? [];
+                const cutoff = Date.now() - 60_000;
+                const recent = sparkRaw.filter(p => p.t && p.t >= cutoff);
+                let peakLat = null;
+                if (recent.length) {
+                  const top = recent.reduce((a, b) => (b.v ?? 0) > (a.v ?? 0) ? b : a, recent[0]);
+                  peakLat = { value: top.v ?? 0, unit: 'ms', ageSeconds: Math.max(0, Math.round((Date.now() - top.t) / 1000)) };
+                }
+                return (
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14 }}>
+                <MetricCard title="Total RPS"      rawValue={metrics?.total_rps??null}       decimals={1} unit="req/s" sub="across all regions" color="#10b981" spark={rpsSpk}   loading={loading} onExpand={openModal} live={isLive}/>
+                <MetricCard title="Allow Rate"     rawValue={metrics?.allow_rate??null}       decimals={1} unit="%"     sub="of all requests"   color="#3b82f6" spark={allowSpk} loading={loading} onExpand={openModal} live={isLive}/>
+                <MetricCard title="Tier Latency"   rawValue={latencyData?.tier_latency_ms??null} decimals={0} unit="ms" sub="US free tier congestion"
+                  color={latencyData?.tier_latency_ms >= 100 ? '#ef4444' : latencyData?.tier_latency_ms >= 20 ? '#f59e0b' : '#10b981'}
+                  spark={(latencyData?.tier_latency_spark??[]).map(p=>({v:p.v}))} loading={loading} onExpand={openModal} live={isLive} peak={peakLat}/>
+                <MetricCard title="AI Decisions"   rawValue={metrics?.recent_decisions??null} isInt               sub="last 24 hours"        color="#f59e0b" spark={[]}       loading={loading} onExpand={openModal}/>
+              </div>
+                );
+              })()}
+
+              <TierHealthPanel latency={latencyData} loading={loading} onExpand={openModal} totalRps={metrics?.total_rps ?? 0} agentRunning={!!ctrlStatus?.agent?.running}/>
+
+              <ModelPerformancePanel modelData={modelMetrics} onExpand={openModal}/>
+
+              <div style={{ display:'grid', gridTemplateColumns:'3fr 2fr', gap:14 }}>
+                <DecisionsFeed decisions={decisions} loading={loading}/>
+                <OverridesTable overrides={overrides} loading={loading}/>
+              </div>
+
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+                <CounterChart counters={counters} loading={loading} onExpand={openModal}/>
+                <TopUsers counters={counters} loading={loading}/>
+              </div>
+            </div>
+
+            <Footer connected={connected}/>
+          </div>
+
+          <ControlSidebar
+            ctrlStatus={ctrlStatus} logs={logs} addLog={addLog} addToast={addToast}
+            refreshCtrl={loadCtrl} open={sidebarOpen} onClose={()=>setSidebarOpen(false)}
+            onViewPolicies={() => setPoliciesOpen(true)}
+          />
+        </div>
+      );
+    }
+
+    // ─── Mount ────────────────────────────────────────────────────────────────
+    try {
+      const fb = document.getElementById('loading-fallback');
+      ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+      if (fb) fb.style.display = 'none';
+    } catch (err) {
+      const el = document.getElementById('fallback-error');
+      if (el) { el.style.display='block'; el.textContent='React mount error: '+err.message; }
+      console.error('React mount failed:', err);
+    }
+  </script>
+</body>
+</html>
