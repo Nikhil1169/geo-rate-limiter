@@ -1,0 +1,156 @@
+2026-05-08 15:22:56,798 INFO FLUSH all Redis instances
+2026-05-08 15:22:57,074 INFO Redis flush complete: {'redis-us': 'ok', 'redis-eu': 'ok', 'redis-asia': 'ok'}
+2026-05-08 15:23:00,806 INFO SEED policies: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/tools/seed_policies.py --demo
+2026-05-08 15:23:01,011 INFO seed_policies: 9 policies written
+2026-05-08 15:24:44,242 INFO START simulator: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/simulator/main.py scenario noisy_neighbor
+2026-05-08 15:24:44,245 INFO simulator started pid=56256 scenario=noisy_neighbor
+2026-05-08 15:27:46,617 INFO START agent: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python -m agent.main run --predictor ewma --interval 15
+2026-05-08 15:27:46,620 INFO agent started pid=57099 predictor=ewma interval=15
+2026-05-08 15:29:43,805 INFO START simulator: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/simulator/main.py scenario noisy_neighbor
+2026-05-08 15:29:43,812 INFO simulator started pid=57679 scenario=noisy_neighbor
+2026-05-08 15:32:45,135 INFO FLUSH all Redis instances
+2026-05-08 15:32:45,425 INFO Redis flush complete: {'redis-us': 'ok', 'redis-eu': 'ok', 'redis-asia': 'ok'}
+2026-05-08 15:32:48,968 INFO SEED policies: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/tools/seed_policies.py --demo
+2026-05-08 15:32:49,190 INFO seed_policies: 9 policies written
+2026-05-08 15:32:58,715 INFO agent stopped pid=57099
+2026-05-08 15:32:58,718 INFO deleted decisions.jsonl — next start will warm up from scratch
+2026-05-08 15:33:10,362 INFO START simulator: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/simulator/main.py scenario noisy_neighbor
+2026-05-08 15:33:10,368 INFO simulator started pid=58689 scenario=noisy_neighbor
+2026-05-08 15:36:24,503 INFO START agent: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python -m agent.main run --predictor ewma --interval 15
+2026-05-08 15:36:24,508 INFO agent started pid=59617 predictor=ewma interval=15
+2026-05-08 15:38:16,532 INFO START simulator: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/simulator/main.py scenario noisy_neighbor
+2026-05-08 15:38:16,540 INFO simulator started pid=60146 scenario=noisy_neighbor
+2026-05-08 15:43:09,344 INFO agent stopped pid=59617
+2026-05-08 15:43:09,345 INFO deleted decisions.jsonl — next start will warm up from scratch
+2026-05-08 15:43:16,673 INFO FLUSH all Redis instances
+2026-05-08 15:43:16,988 INFO Redis flush complete: {'redis-us': 'ok', 'redis-eu': 'ok', 'redis-asia': 'ok'}
+2026-05-08 15:49:16,106 INFO FLUSH all Redis instances
+2026-05-08 15:49:16,424 INFO Redis flush complete: {'redis-us': 'ok', 'redis-eu': 'ok', 'redis-asia': 'ok'}
+2026-05-08 15:49:51,877 INFO SEED policies: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/tools/seed_policies.py --demo
+2026-05-08 15:49:52,081 INFO seed_policies: 9 policies written
+2026-05-08 15:50:09,434 INFO START simulator: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/simulator/main.py scenario noisy_neighbor
+2026-05-08 15:50:09,440 INFO simulator started pid=63290 scenario=noisy_neighbor
+2026-05-08 15:53:06,077 INFO START agent: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python -m agent.main run --predictor ewma --interval 15
+2026-05-08 15:53:06,084 INFO agent started pid=64148 predictor=ewma interval=15
+2026-05-08 15:58:22,989 INFO START simulator: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/simulator/main.py scenario noisy_neighbor
+2026-05-08 15:58:22,998 INFO simulator started pid=65433 scenario=noisy_neighbor
+2026-05-08 20:24:36,222 INFO FLUSH all Redis instances
+2026-05-08 20:24:36,516 INFO Redis flush complete: {'redis-us': 'ok', 'redis-eu': 'ok', 'redis-asia': 'ok'}
+2026-05-08 20:24:37,331 INFO RESTART gateways
+2026-05-08 20:24:38,175 INFO gateways restarted
+2026-05-08 20:24:41,489 INFO SEED policies: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/tools/seed_policies.py --demo
+2026-05-08 20:24:41,751 INFO seed_policies: 9 policies written
+2026-05-08 20:24:52,293 INFO START simulator: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/simulator/main.py scenario noisy_neighbor
+2026-05-08 20:24:52,300 INFO simulator started pid=10390 scenario=noisy_neighbor
+2026-05-08 23:52:37,689 INFO FLUSH all Redis instances
+2026-05-08 23:52:38,071 INFO Redis flush complete: {'redis-us': 'ok', 'redis-eu': 'ok', 'redis-asia': 'ok'}
+2026-05-08 23:56:34,836 INFO SEED policies: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/tools/seed_policies.py --demo
+2026-05-08 23:56:35,069 INFO seed_policies: 9 policies written
+2026-05-08 23:56:38,397 INFO START simulator: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/simulator/main.py scenario noisy_neighbor
+2026-05-08 23:56:38,403 INFO simulator started pid=20454 scenario=noisy_neighbor
+2026-05-09 00:01:46,551 INFO START agent: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python -m agent.main run --predictor ewma --interval 15
+2026-05-09 00:01:46,558 INFO agent started pid=21819 predictor=ewma interval=15
+2026-05-09 00:23:03,580 INFO START simulator: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/simulator/main.py scenario noisy_neighbor
+2026-05-09 00:23:03,587 INFO simulator started pid=26795 scenario=noisy_neighbor
+2026-05-09 00:29:08,238 INFO START simulator: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/simulator/main.py scenario noisy_neighbor
+2026-05-09 00:29:08,243 INFO simulator started pid=28483 scenario=noisy_neighbor
+2026-05-09 00:32:22,138 INFO agent stopped pid=21819
+2026-05-09 00:32:22,140 INFO deleted decisions.jsonl — next start will warm up from scratch
+2026-05-09 00:32:26,368 INFO FLUSH all Redis instances
+2026-05-09 00:32:26,715 INFO Redis flush complete: {'redis-us': 'ok', 'redis-eu': 'ok', 'redis-asia': 'ok'}
+2026-05-09 00:37:28,282 INFO FLUSH all Redis instances
+2026-05-09 00:37:28,606 INFO Redis flush complete: {'redis-us': 'ok', 'redis-eu': 'ok', 'redis-asia': 'ok'}
+2026-05-09 00:37:31,932 INFO SEED policies: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/tools/seed_policies.py --demo
+2026-05-09 00:37:32,124 INFO seed_policies: 9 policies written
+2026-05-09 00:37:46,599 INFO START simulator: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/simulator/main.py scenario noisy_neighbor
+2026-05-09 00:37:46,603 INFO simulator started pid=30979 scenario=noisy_neighbor
+2026-05-09 00:41:12,814 INFO FLUSH all Redis instances
+2026-05-09 00:41:13,118 INFO Redis flush complete: {'redis-us': 'ok', 'redis-eu': 'ok', 'redis-asia': 'ok'}
+2026-05-09 00:41:19,193 INFO RESTART gateways
+2026-05-09 00:41:20,128 INFO gateways restarted
+2026-05-09 00:41:32,982 INFO SEED policies: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/tools/seed_policies.py --demo
+2026-05-09 00:41:33,171 INFO seed_policies: 9 policies written
+2026-05-09 00:41:47,747 INFO START agent: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python -m agent.main run --predictor ewma --interval 15
+2026-05-09 00:41:47,753 INFO agent started pid=32117 predictor=ewma interval=15
+2026-05-09 00:43:46,227 INFO START simulator: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/simulator/main.py scenario noisy_neighbor
+2026-05-09 00:43:46,236 INFO simulator started pid=32674 scenario=noisy_neighbor
+2026-05-09 00:58:29,441 INFO agent stopped pid=32117
+2026-05-09 00:58:29,445 INFO deleted decisions.jsonl — next start will warm up from scratch
+2026-05-09 00:58:36,725 INFO FLUSH all Redis instances
+2026-05-09 00:58:37,013 INFO Redis flush complete: {'redis-us': 'ok', 'redis-eu': 'ok', 'redis-asia': 'ok'}
+2026-05-09 00:58:37,608 INFO RESTART gateways
+2026-05-09 00:58:38,411 INFO gateways restarted
+2026-05-09 00:58:41,041 INFO SEED policies: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/tools/seed_policies.py --demo
+2026-05-09 00:58:41,253 INFO seed_policies: 9 policies written
+2026-05-09 00:58:58,708 INFO START simulator: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/simulator/main.py scenario noisy_neighbor
+2026-05-09 00:58:58,715 INFO simulator started pid=36279 scenario=noisy_neighbor
+2026-05-09 01:02:33,612 INFO FLUSH all Redis instances
+2026-05-09 01:02:33,899 INFO Redis flush complete: {'redis-us': 'ok', 'redis-eu': 'ok', 'redis-asia': 'ok'}
+2026-05-09 01:02:37,387 INFO SEED policies: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/tools/seed_policies.py --demo
+2026-05-09 01:02:37,601 INFO seed_policies: 9 policies written
+2026-05-09 01:02:46,266 INFO START agent: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python -m agent.main run --predictor ewma --interval 15
+2026-05-09 01:02:46,273 INFO agent started pid=37344 predictor=ewma interval=15
+2026-05-09 01:04:46,031 INFO START simulator: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/simulator/main.py scenario noisy_neighbor
+2026-05-09 01:04:46,039 INFO simulator started pid=37918 scenario=noisy_neighbor
+2026-05-09 01:08:06,910 INFO START simulator: /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/.venv/bin/python /Users/nikhil/Documents/test/PROJECTS/CMPE273/geo-rate-limiter/simulator/main.py scenario product_launch
+2026-05-09 01:08:06,917 INFO simulator started pid=38925 scenario=product_launch
+2026-05-11 19:45:09,414 INFO START agent: /usr/local/bin/python -m agent.main run --predictor ewma --interval 10
+2026-05-11 19:45:09,417 INFO agent started pid=87 predictor=ewma interval=10
+2026-05-11 19:45:55,373 INFO SEED policies: /usr/local/bin/python /repo/tools/seed_policies.py --demo
+2026-05-11 19:45:55,521 INFO seed_policies: 9 policies written
+2026-05-11 19:46:04,636 INFO START agent: /usr/local/bin/python -m agent.main run --predictor ewma --interval 10
+2026-05-11 19:46:04,637 INFO agent started pid=173 predictor=ewma interval=10
+2026-05-11 19:47:22,558 INFO scenario noisy_neighbor: scrubbed overrides {'us': 0, 'eu': 0, 'asia': 0}
+2026-05-11 19:47:22,559 INFO START simulator: /usr/local/bin/python /repo/simulator/main.py scenario noisy_neighbor
+2026-05-11 19:47:22,560 INFO simulator started pid=809 scenario=noisy_neighbor
+2026-05-11 19:48:21,083 INFO simulator stopped pid=809
+2026-05-11 19:48:21,090 INFO simulator stop: scrubbed overrides {'us': 2, 'eu': 0, 'asia': 0}
+2026-05-11 19:48:28,613 INFO scenario noisy_neighbor: scrubbed overrides {'us': 0, 'eu': 0, 'asia': 0}
+2026-05-11 19:48:28,613 INFO START simulator: /usr/local/bin/python /repo/simulator/main.py scenario noisy_neighbor
+2026-05-11 19:48:28,614 INFO simulator started pid=1338 scenario=noisy_neighbor
+2026-05-11 19:48:44,975 INFO simulator stopped pid=1338
+2026-05-11 19:48:44,980 INFO simulator stop: scrubbed overrides {'us': 0, 'eu': 0, 'asia': 0}
+2026-05-11 19:55:55,254 INFO START agent: /usr/local/bin/python -m agent.main run --predictor ewma --interval 15
+2026-05-11 19:55:55,256 INFO agent started pid=60 predictor=ewma interval=15
+2026-05-11 19:56:32,109 INFO FLUSH all Redis instances
+2026-05-11 19:56:32,129 INFO Redis flush complete: {'redis-us': 'ok', 'redis-eu': 'ok', 'redis-asia': 'ok'}
+2026-05-11 19:56:37,298 INFO SEED policies: /usr/local/bin/python /repo/tools/seed_policies.py --demo
+2026-05-11 19:56:37,500 INFO seed_policies: 9 policies written
+2026-05-11 19:56:39,698 INFO START agent: /usr/local/bin/python -m agent.main run --predictor ewma --interval 15
+2026-05-11 19:56:39,699 INFO agent started pid=127 predictor=ewma interval=15
+2026-05-11 19:58:54,400 INFO scenario noisy_neighbor: scrubbed overrides {'us': 0, 'eu': 0, 'asia': 0}
+2026-05-11 19:58:54,401 INFO START simulator: /usr/local/bin/python /repo/simulator/main.py scenario noisy_neighbor
+2026-05-11 19:58:54,403 INFO simulator started pid=1202 scenario=noisy_neighbor
+2026-05-11 20:01:38,548 INFO scenario global_steady: scrubbed overrides {'us': 2, 'eu': 0, 'asia': 0}
+2026-05-11 20:01:38,550 INFO START simulator: /usr/local/bin/python /repo/simulator/main.py scenario global_steady
+2026-05-11 20:01:38,550 INFO simulator started pid=2500 scenario=global_steady
+2026-05-11 20:01:45,742 INFO simulator stopped pid=2500
+2026-05-11 20:01:45,750 INFO simulator stop: scrubbed overrides {'us': 2, 'eu': 0, 'asia': 0}
+2026-05-11 20:01:47,997 INFO FLUSH all Redis instances
+2026-05-11 20:01:48,015 INFO Redis flush complete: {'redis-us': 'ok', 'redis-eu': 'ok', 'redis-asia': 'ok'}
+2026-05-11 20:01:53,242 INFO SEED policies: /usr/local/bin/python /repo/tools/seed_policies.py --demo
+2026-05-11 20:01:53,364 INFO seed_policies: 9 policies written
+2026-05-11 20:01:53,365 INFO seed_policies: cleared decisions.jsonl
+2026-05-11 20:01:59,508 INFO RESTART gateways
+2026-05-11 20:02:00,668 INFO gateways restarted
+2026-05-11 20:02:02,324 INFO FLUSH all Redis instances
+2026-05-11 20:02:02,335 INFO Redis flush complete: {'redis-us': 'ok', 'redis-eu': 'ok', 'redis-asia': 'ok'}
+2026-05-11 20:02:04,481 INFO SEED policies: /usr/local/bin/python /repo/tools/seed_policies.py --demo
+2026-05-11 20:02:04,651 INFO seed_policies: 9 policies written
+2026-05-11 20:02:18,264 INFO agent stopped pid=127
+2026-05-11 20:02:21,434 INFO FLUSH all Redis instances
+2026-05-11 20:02:21,463 INFO Redis flush complete: {'redis-us': 'ok', 'redis-eu': 'ok', 'redis-asia': 'ok'}
+2026-05-11 20:02:22,224 INFO RESTART gateways
+2026-05-11 20:02:23,151 INFO gateways restarted
+2026-05-11 20:02:26,339 INFO SEED policies: /usr/local/bin/python /repo/tools/seed_policies.py --demo
+2026-05-11 20:02:26,509 INFO seed_policies: 9 policies written
+2026-05-11 20:02:28,475 INFO START agent: /usr/local/bin/python -m agent.main run --predictor ewma --interval 10
+2026-05-11 20:02:28,477 INFO agent started pid=2937 predictor=ewma interval=10
+2026-05-11 20:03:45,707 INFO scenario global_steady: scrubbed overrides {'us': 0, 'eu': 0, 'asia': 0}
+2026-05-11 20:03:45,708 INFO START simulator: /usr/local/bin/python /repo/simulator/main.py scenario global_steady
+2026-05-11 20:03:45,709 INFO simulator started pid=3566 scenario=global_steady
+2026-05-11 20:06:30,048 INFO simulator stopped pid=3566
+2026-05-11 20:06:30,055 INFO simulator stop: scrubbed overrides {'us': 0, 'eu': 0, 'asia': 0}
+2026-05-11 20:11:30,748 INFO scenario region_failover: scrubbed overrides {'us': 0, 'eu': 0, 'asia': 0}
+2026-05-11 20:11:30,749 INFO START simulator: /usr/local/bin/python /repo/simulator/main.py scenario region_failover
+2026-05-11 20:11:30,750 INFO simulator started pid=7205 scenario=region_failover
