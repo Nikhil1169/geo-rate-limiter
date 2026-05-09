@@ -37,6 +37,16 @@ var CounterValue = promauto.NewGaugeVec(
 	[]string{"region", "tier", "user_id"},
 )
 
+// TierCongestion reports the current tier-level request count in the active 30s window.
+// Used by the dashboard to show backend congestion before/after agent throttling.
+var TierCongestion = promauto.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "rl_tier_congestion",
+		Help: "Requests in the current 30-second window for this region+tier (congestion indicator).",
+	},
+	[]string{"region", "tier"},
+)
+
 // PolicyVersion tracks the active policy generation per region+tier — Contract 3.
 // 0 = static baseline; positive integers are agent-written sequence numbers (Phase 4).
 var PolicyVersion = promauto.NewGaugeVec(

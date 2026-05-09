@@ -17,6 +17,8 @@ class StreamConfig:
     diurnal:    bool        = False
     bias_user:  str | None  = None
     bias_share: float       = 0.0
+    # Multi-user bias: list of (user_id, share) pairs; shares must sum < 1.0
+    bias_users: list[tuple[str, float]] | None = None
 
 
 @dataclasses.dataclass
@@ -43,11 +45,20 @@ SCENARIOS: dict[str, ScenarioSpec] = {
     ),
     "noisy_neighbor": ScenarioSpec(
         name="noisy_neighbor",
-        description="free_00001 sends 90% of free-tier traffic for 60s on US",
+        description=(
+            "Two abusers (free_00001 at 35%, free_00002 at 25%) saturate the US free tier "
+            "for 120s. Combined 60% share drives tier congestion above the threshold, "
+            "injecting ~200ms backend delay for ALL users including legit ones (free_00003–00008). "
+            "Agent detects both abusers at ~t=60s and creates overrides (30/min each). "
+            "Congestion drops, legit user latency recovers from ~200ms to <10ms."
+        ),
         streams=[
             StreamConfig(
-                rps=20.0, duration=60.0, region="us",
-                bias_user="free_00001", bias_share=0.9,
+                rps=20.0, duration=120.0, region="us",
+                bias_users=[
+                    ("free_00001", 0.35),
+                    ("free_00002", 0.25),
+                ],
             ),
         ],
     ),
@@ -92,6 +103,7 @@ async def _run_stream_group(
             diurnal=cfg.diurnal,
             bias_user=cfg.bias_user,
             bias_share=cfg.bias_share,
+            bias_users=cfg.bias_users,
         )
         await run(stream, stats, concurrency=concurrency, client=client, semaphore=semaphore)
 

@@ -143,7 +143,7 @@ func (s *Store) refresh(ctx context.Context) {
 
 		p := Policy{
 			Limit:       c4.LimitPerMinute,
-			GlobalLimit: c4.LimitPerMinute,
+			GlobalLimit: c4.LimitPerMinute * 3,
 			Burst:       c4.Burst,
 			Algorithm:   c4.Algorithm,
 			PolicyID:    c4.PolicyID,

@@ -164,7 +164,7 @@ def _prom_scalar(promql: str) -> float:
     return 0.0
 
 
-def _prom_range(promql: str, duration: str = "2m", step: str = "6s") -> list[dict]:
+def _prom_range(promql: str, step: str = "5s") -> list[dict]:
     """Fetch a range query and return [{t, v}] pairs for the first series."""
     try:
         now = time.time()
@@ -172,7 +172,7 @@ def _prom_range(promql: str, duration: str = "2m", step: str = "6s") -> list[dic
             f"{PROM_URL}/api/v1/query_range",
             params={
                 "query": promql,
-                "start": now - 120,
+                "start": now - 90,
                 "end": now,
                 "step": step,
             },
@@ -281,11 +281,16 @@ def api_overrides():
                         data = json.loads(raw)
                         user_id = key.split(":", 1)[1] if ":" in key else key
                         ttl = client.ttl(key)
+                        # ttl == -1 means no Redis EXPIRE was set — the key never
+                        # expires and represents a stale override; skip it.
+                        # ttl > 0 means the override is genuinely active.
+                        if ttl <= 0:
+                            continue
                         result.append({
                             "user_id": user_id,
                             "limit": data.get("limit_per_minute"),
                             "reason": data.get("reason", ""),
-                            "ttl": ttl if ttl >= 0 else None,
+                            "ttl": ttl,
                             "region": r,
                         })
                 except (json.JSONDecodeError, Exception):
@@ -474,11 +479,27 @@ def api_control_agent_stop():
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
-        _ctrl_log.info("agent stopped pid=%d", proc.pid)
+        pid = proc.pid
+        _ctrl_log.info("agent stopped pid=%d", pid)
         _procs["agent"] = None
         _proc_started.pop("agent", None)
         _agent_config.clear()
-        return jsonify({"status": "stopped"})
+
+        # Delete decisions.jsonl so the next agent start has a clean warmup.
+        # Use the same path resolution as _parse_recent_ticks.
+        cleaned = False
+        try:
+            dpath = DECISIONS_PATH if DECISIONS_PATH.is_absolute() else Path.cwd() / DECISIONS_PATH
+            if not dpath.exists():
+                dpath = Path(__file__).parent / "decisions.jsonl"
+            if dpath.exists():
+                dpath.unlink()
+                cleaned = True
+                _ctrl_log.info("deleted decisions.jsonl — next start will warm up from scratch")
+        except Exception as exc:
+            _ctrl_log.warning("could not delete decisions.jsonl: %s", exc)
+
+        return jsonify({"status": "stopped", "pid": pid, "decisions_cleared": cleaned})
     except Exception as exc:
         _ctrl_log.error("agent stop failed: %s", exc)
         return jsonify({"status": "error", "message": str(exc)}), 500
@@ -708,6 +729,160 @@ def api_model_metrics():
             "seasonal_period":  20  if predictor == "holtwinters" else None,
             "interval_seconds": interval,
         },
+    })
+
+
+@app.route("/api/policies/current")
+def api_policies_current():
+    """
+    Return all active policy:{region}:{tier} keys from every Redis instance.
+    Uses the existing Python redis client — no subprocess needed.
+    """
+    TIERS = ("free", "premium", "internal")
+    policies: dict[str, dict] = {}
+
+    for region in ("us", "eu", "asia"):
+        def fetch(client, r=region):
+            result = {}
+            for tier in TIERS:
+                key = f"policy:{r}:{tier}"
+                raw = client.get(key)
+                if raw:
+                    try:
+                        ttl = client.ttl(key)
+                        result[tier] = {
+                            "policy": json.loads(raw),
+                            "ttl": ttl if ttl >= 0 else -1,
+                        }
+                    except json.JSONDecodeError:
+                        result[tier] = {"error": "Invalid JSON", "ttl": -1}
+                else:
+                    result[tier] = None
+            return result
+
+        policies[region] = _safe_redis(region, fetch) or {t: None for t in TIERS}
+
+    return jsonify({
+        "status": "success",
+        "policies": policies,
+        "ts": int(time.time() * 1000),
+    })
+
+
+@app.route("/api/control/redis/flush", methods=["POST"])
+def api_control_redis_flush():
+    """FLUSHALL on every regional Redis container — clears counters, policies, overrides."""
+    _ctrl_log.info("FLUSH all Redis instances")
+    results = {}
+    errors  = []
+    for name in ("redis-us", "redis-eu", "redis-asia"):
+        try:
+            subprocess.run(
+                ["docker", "exec", name, "redis-cli", "FLUSHALL"],
+                capture_output=True, text=True, timeout=10, check=True,
+            )
+            results[name] = "ok"
+        except Exception as exc:
+            results[name] = str(exc)
+            errors.append(f"{name}: {exc}")
+
+    if errors:
+        _ctrl_log.error("Redis flush partial failure: %s", errors)
+        return jsonify({"status": "partial", "results": results, "errors": errors}), 500
+
+    _ctrl_log.info("Redis flush complete: %s", results)
+    return jsonify({"status": "flushed", "message": "All Redis data cleared", "results": results})
+
+
+@app.route("/api/control/gateways/restart", methods=["POST"])
+def api_control_gateways_restart():
+    """Restart all three gateway containers via docker compose."""
+    _ctrl_log.info("RESTART gateways")
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "restart", "gateway-us", "gateway-eu", "gateway-asia"],
+            cwd=str(REPO_ROOT),
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode != 0:
+            _ctrl_log.error("gateway restart failed: %s", result.stderr.strip())
+            return jsonify({"status": "error", "message": result.stderr.strip() or "docker compose restart failed"}), 500
+
+        _ctrl_log.info("gateways restarted")
+        return jsonify({"status": "restarted", "message": "All gateways restarted"})
+    except subprocess.TimeoutExpired:
+        return jsonify({"status": "error", "message": "Timed out after 60s"}), 500
+    except Exception as exc:
+        _ctrl_log.error("gateway restart exception: %s", exc)
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+
+@app.route("/api/user-latency")
+def api_user_latency():
+    """
+    Tier-congestion latency for the noisy_neighbor demo.
+
+    Reads rl_tier_congestion{region,tier} from Prometheus.
+    Implied latency = max(0, congestion_count - THRESHOLD) ms, capped at 300ms.
+    This matches the gateway formula exactly so the numbers are consistent.
+    """
+    THRESHOLD = 250   # must match handler.go tier congestion threshold
+    MAX_DELAY = 300   # must match handler.go maxDelayMs
+
+    region = request.args.get("region", "us")
+    tier   = request.args.get("tier",   "free")
+
+    # Current congestion level
+    congestion = _prom_scalar(
+        f'rl_tier_congestion{{region="{region}",tier="{tier}"}}'
+    )
+    implied_ms = max(0.0, min(congestion - THRESHOLD, MAX_DELAY))
+
+    # Sparkline history of implied latency
+    raw_spark = _prom_range(
+        f'clamp_max(clamp_min(rl_tier_congestion{{region="{region}",tier="{tier}"}} - {THRESHOLD}, 0), {MAX_DELAY})',
+        step="3s",
+    )
+
+    # Health thresholds
+    healthy   = implied_ms < 20
+    degraded  = implied_ms >= 100
+
+    # Abusers = users with active overrides in this region
+    abusers: list[dict] = []
+    try:
+        rdb = _safe_redis(region)
+        if rdb:
+            for key in rdb.scan_iter("override:*"):
+                uid = key.split(":", 1)[1]
+                ttl = rdb.ttl(key)
+                if ttl <= 0:
+                    continue
+                raw = rdb.get(key)
+                if raw:
+                    try:
+                        data = json.loads(raw)
+                        abusers.append({
+                            "user_id": uid,
+                            "limit_per_minute": data.get("limit_per_minute"),
+                            "ttl": ttl,
+                            "reason": data.get("reason", ""),
+                        })
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    return jsonify({
+        "region":              region,
+        "tier":                tier,
+        "congestion_count":    round(congestion),
+        "congestion_threshold": THRESHOLD,  # requests per 30s window
+        "tier_latency_ms":     round(implied_ms, 1),
+        "tier_latency_spark":  raw_spark,
+        "healthy":             healthy,
+        "degraded":            degraded,
+        "abusers":             abusers,
     })
 
 

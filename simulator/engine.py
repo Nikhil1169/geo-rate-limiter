@@ -50,6 +50,7 @@ async def poisson_stream(
     diurnal: bool = False,
     bias_user: str | None = None,
     bias_share: float = 0.0,
+    bias_users: list[tuple[str, float]] | None = None,
 ) -> AsyncGenerator[RequestSpec, None]:
     """Yield RequestSpecs at Poisson-distributed intervals until duration elapses."""
     deadline = time.monotonic() + duration
@@ -66,7 +67,12 @@ async def poisson_stream(
         await asyncio.sleep(min(delay, max(remaining, 0)))
         if time.monotonic() >= deadline:
             break
-        user_id, tier = pick_user(population, bias_user=bias_user, bias_share=bias_share)
+        user_id, tier = pick_user(
+            population,
+            bias_user=bias_user,
+            bias_share=bias_share,
+            bias_users=bias_users,
+        )
         yield RequestSpec(
             user_id=user_id,
             tier=tier,
@@ -99,6 +105,7 @@ async def send_one(
                     latency_ms,
                     tier=spec.tier,
                     region=spec.region,
+                    user_id=spec.user_id,
                 )
                 return
             except httpx.ConnectError:

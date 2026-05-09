@@ -12,6 +12,7 @@ class Sample:
     allowed:    bool
     tier:       str
     region:     str
+    user_id:    str = ""
 
 
 class LiveStats:
@@ -23,6 +24,8 @@ class LiveStats:
         self.errors    = 0
         self._samples: collections.deque[Sample] = collections.deque(maxlen=10_000)
         self._start_ts = time.monotonic()
+        # per-user sliding window: deque of (ts, latency_ms) — last 200 samples per user
+        self._user_latency: dict[str, collections.deque[tuple[float, float]]] = {}
 
     async def record(
         self,
@@ -31,6 +34,7 @@ class LiveStats:
         *,
         tier: str,
         region: str,
+        user_id: str = "",
     ) -> None:
         async with self._lock:
             self.sent += 1
@@ -38,13 +42,19 @@ class LiveStats:
                 self.allowed += 1
             else:
                 self.denied += 1
+            ts = time.monotonic() - self._start_ts
             self._samples.append(Sample(
-                ts=time.monotonic() - self._start_ts,
+                ts=ts,
                 latency_ms=latency_ms,
                 allowed=bool(response.get("allowed")),
                 tier=tier,
                 region=region,
+                user_id=user_id,
             ))
+            if user_id:
+                if user_id not in self._user_latency:
+                    self._user_latency[user_id] = collections.deque(maxlen=200)
+                self._user_latency[user_id].append((ts, latency_ms))
 
     async def record_error(self) -> None:
         async with self._lock:
@@ -62,6 +72,17 @@ class LiveStats:
                 "elapsed": elapsed,
                 "rps":     self.sent / elapsed if elapsed > 0 else 0.0,
             }
+
+    async def user_latency_snapshot(self, window_s: float = 30.0) -> dict[str, float]:
+        """Return avg latency (ms) per user over the last window_s seconds."""
+        async with self._lock:
+            now = time.monotonic() - self._start_ts
+            result: dict[str, float] = {}
+            for uid, dq in self._user_latency.items():
+                recent = [lat for ts, lat in dq if now - ts <= window_s]
+                if recent:
+                    result[uid] = sum(recent) / len(recent)
+            return result
 
 
 async def periodic_print(stats: LiveStats, interval: float = 5.0) -> None:
@@ -136,7 +157,7 @@ def final_summary(stats: LiveStats) -> None:
 def write_csv(stats: LiveStats, path: str) -> None:
     with open(path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["ts", "latency_ms", "allowed", "tier", "region"])
+        writer.writerow(["ts", "latency_ms", "allowed", "tier", "region", "user_id"])
         for s in stats._samples:
             writer.writerow([
                 f"{s.ts:.3f}",
@@ -144,4 +165,5 @@ def write_csv(stats: LiveStats, path: str) -> None:
                 "true" if s.allowed else "false",
                 s.tier,
                 s.region,
+                s.user_id,
             ])

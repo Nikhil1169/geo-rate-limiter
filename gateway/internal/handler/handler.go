@@ -135,9 +135,10 @@ func check(d Deps) gin.HandlerFunc {
 		metrics.DecisionDuration.WithLabelValues(d.Region).Observe(elapsed.Seconds())
 
 		// Phase 3: G-Counter increment + global cap check.
-		// Runs for every request that reached the rate-limit decision
-		// (region-validated, Rdb wired), regardless of local bucket outcome.
-		if err == nil && d.Rdb != nil {
+		// Only runs when the local bucket allowed the request — counting denied
+		// requests would cause the global cap to fire early when a single user
+		// is being throttled, which incorrectly denies other users in the tier.
+		if err == nil && d.Rdb != nil && allowed {
 			windowID := time.Now().Unix() / 60
 			globalKey := fmt.Sprintf("rl:global:%s:%s:%d", req.Tier, req.UserID, windowID)
 			ctx := c.Request.Context()
@@ -179,11 +180,42 @@ func check(d Deps) gin.HandlerFunc {
 						}
 					}
 
-					if sum*2 >= pol.GlobalLimit {
+					// Emit when the user has consumed > half their own per-user limit.
+					// Previously used pol.GlobalLimit (= Limit*3 = 900) as the threshold,
+					// but that made the threshold 450 — impossible to reach since users
+					// are capped at Limit (300) allowed requests per window.
+					if sum*2 >= pol.Limit {
 						metrics.CounterValue.WithLabelValues(
 							d.Region, req.Tier, req.UserID,
 						).Set(float64(sum))
 					}
+				}
+			}
+		}
+
+		// Tier-congestion simulation: tracks allowed requests per 30-second window.
+		// When multiple abusers saturate the tier, the count exceeds the threshold
+		// and all users (including legit ones) experience simulated backend delay —
+		// modelling real queueing under shared downstream resource pressure.
+		// Agent throttling abusers drops the count below threshold → delay goes to zero.
+		if allowed && d.Rdb != nil {
+			ctx := c.Request.Context()
+			winID := time.Now().Unix() / 30
+			hotKey := fmt.Sprintf("rl:tier_hot:%s:%s:%d", d.Region, req.Tier, winID)
+			count, incrErr := d.Rdb.Incr(ctx, hotKey).Result()
+			if incrErr == nil {
+				// Always reset TTL so the key expires 60s after the last request.
+				// This ensures stale congestion data doesn't persist when traffic stops.
+				d.Rdb.Expire(ctx, hotKey, 60*time.Second)
+				const threshold int64 = 250
+				const maxDelayMs int64 = 300
+				metrics.TierCongestion.WithLabelValues(d.Region, req.Tier).Set(float64(count))
+				if count > threshold {
+					delayMs := count - threshold
+					if delayMs > maxDelayMs {
+						delayMs = maxDelayMs
+					}
+					time.Sleep(time.Duration(delayMs) * time.Millisecond)
 				}
 			}
 		}

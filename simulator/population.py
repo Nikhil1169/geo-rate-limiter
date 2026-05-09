@@ -38,9 +38,23 @@ def pick_user(
     *,
     bias_user: str | None = None,
     bias_share: float = 0.0,
+    bias_users: list[tuple[str, float]] | None = None,
 ) -> tuple[str, str]:
-    """Return (user_id, tier). If bias_user is set, return it with probability bias_share."""
-    if bias_user and random.random() < bias_share:
+    """Return (user_id, tier).
+
+    bias_users takes priority: list of (user_id, share) pairs applied cumulatively;
+    shares must sum to < 1.0 (remainder goes to random population).
+    Falls back to legacy bias_user / bias_share when bias_users is not set.
+    """
+    if bias_users:
+        r = random.random()
+        cumulative = 0.0
+        for uid, share in bias_users:
+            cumulative += share
+            if r < cumulative:
+                tier = uid.split("_")[0]
+                return uid, tier
+    elif bias_user and random.random() < bias_share:
         tier = bias_user.split("_")[0]
         return bias_user, tier
     tier = random.choices(

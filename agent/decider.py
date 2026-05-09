@@ -72,13 +72,31 @@ class Decider:
                 rejection_rate = obs.regions[region][tier].rejection_rate
                 is_anomaly = anomalies.get(key, False)
 
+                # Detect noisy-neighbor pattern for this tick.
+                # When any single user holds > 30% of tier traffic the pattern
+                # is concentration, not a tier-wide spike — Rule 3 (per-user
+                # override) is the right tool, not Rule 1 (tier-wide policy).
+                # Computed here so it can gate Rule 1 before hysteresis check.
+                has_noisy_neighbor = (
+                    observed_rpm >= 30
+                    and any(
+                        u.share_of_tier > 0.30
+                        for u in obs.regions[region][tier].top_users
+                    )
+                )
+
                 # Rule 4 — hysteresis gate (Rules 1 & 2 only; Rule 3 has its own)
                 last_pol = self._policy_ts.get(key)
                 if last_pol is not None and (now - last_pol) < self._HYSTERESIS_S:
                     continue
 
                 # ── Rule 1 — predicted spike mitigation (free tier only) ────
-                if tier == "free":
+                # Skipped when a noisy neighbor is present: firing a tier-wide
+                # policy would set _policy_ts and block Rule 3 for 60s, and the
+                # reduced cur_limit_rpm would cause the override throttle value
+                # to shrink each cycle (30 → 21 → 14 → …).
+                # With no noisy neighbor this fires normally for product_launch.
+                if tier == "free" and not has_noisy_neighbor:
                     premium_key = (region, "premium")
                     premium_rej = obs.regions[region]["premium"].rejection_rate
                     spike = (forecast_rpm > 0.8 * cur_limit_rpm) or is_anomaly
@@ -125,13 +143,23 @@ class Decider:
                     continue
 
                 # ── Rule 3 — noisy neighbor (per-user, own hysteresis) ───────
+                # Guard: skip when traffic is idle or the agent is still warming
+                # up — observed_rpm < 30 means < 0.5 RPS, which produces noisy
+                # counter fractions that falsely elevate share_of_tier to 1.0.
+                if observed_rpm < 30:
+                    continue
+
                 for user in obs.regions[region][tier].top_users:
                     if user.share_of_tier <= 0.30:
                         continue
                     u_last = self._override_ts.get(user.user_id)
                     if u_last is not None and (now - u_last) < self._HYSTERESIS_S:
                         continue
-                    throttle = max(1, cur_limit_rpm // 10)
+                    # Throttle against the fixed baseline (not cur_limit_rpm).
+                    # cur_limit_rpm can be reduced by Rule 1, which would make
+                    # the override value shrink each cycle — 30 → 21 → 14 → …
+                    # Using DEMO_BASELINE keeps it stable: 30/min for free tier.
+                    throttle = max(10, DEMO_BASELINE[tier] // 10)
                     decisions.append(Decision(
                         type="override", region=region, tier=tier,
                         user_id=user.user_id,
