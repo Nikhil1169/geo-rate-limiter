@@ -85,7 +85,49 @@ class Decider:
                     )
                 )
 
-                # Rule 4 — hysteresis gate (Rules 1 & 2 only; Rule 3 has its own)
+                # ── Rule 3 — noisy neighbor (per-user, own hysteresis) ───────
+                # Runs BEFORE Rule 4's tier-policy hysteresis gate. Per-user
+                # overrides are an independent concern from tier-policy churn,
+                # and tying them together caused a demo-blocking timing bug:
+                # if Rule 1 fired on tick N (because the predictor saw a rising
+                # tier RPS before the top-N gauge sample revealed the actual
+                # abuser), the entire (region, tier) iteration was skipped for
+                # 60 s — meaning Rule 3 couldn't throttle the abuser the agent
+                # could now plainly see. See docs/demo-prep.md §5a-B.
+                #
+                # Guard: skip when traffic is idle or the agent is still warming
+                # up — observed_rpm < 30 means < 0.5 RPS, which produces noisy
+                # counter fractions that falsely elevate share_of_tier to 1.0.
+                if observed_rpm >= 30:
+                    _NOISY_USER_MIN_RPM = 60   # 1 rps; below this a "30% share" is sampling noise
+
+                    for user in obs.regions[region][tier].top_users:
+                        if user.share_of_tier <= 0.30:
+                            continue
+                        # Sparse-traffic regions (e.g. Asia free at 3rps) can produce
+                        # spurious >30% shares from any user that happens to land in
+                        # the top-N gauge sample. Require the user themself to be
+                        # generating meaningful traffic before throttling them.
+                        if user.rps * 60.0 < _NOISY_USER_MIN_RPM:
+                            continue
+                        u_last = self._override_ts.get(user.user_id)
+                        if u_last is not None and (now - u_last) < self._HYSTERESIS_S:
+                            continue
+                        # Throttle against the fixed baseline (not cur_limit_rpm).
+                        # cur_limit_rpm can be reduced by Rule 1, which would make
+                        # the override value shrink each cycle — 30 → 21 → 14 → …
+                        # Using DEMO_BASELINE keeps it stable: 30/min for free tier.
+                        throttle = max(10, DEMO_BASELINE[tier] // 10)
+                        decisions.append(Decision(
+                            type="override", region=region, tier=tier,
+                            user_id=user.user_id,
+                            limit_per_minute=throttle,
+                            ttl=self._OVERRIDE_TTL,
+                            reason=f"noisy_neighbor_{user.user_id}",
+                        ))
+                        self._override_ts[user.user_id] = now
+
+                # Rule 4 — hysteresis gate (Rules 1 & 2 only; Rule 3 ran above)
                 last_pol = self._policy_ts.get(key)
                 if last_pol is not None and (now - last_pol) < self._HYSTERESIS_S:
                     continue
@@ -141,40 +183,5 @@ class Decider:
                     ))
                     self._policy_ts[key] = now
                     continue
-
-                # ── Rule 3 — noisy neighbor (per-user, own hysteresis) ───────
-                # Guard: skip when traffic is idle or the agent is still warming
-                # up — observed_rpm < 30 means < 0.5 RPS, which produces noisy
-                # counter fractions that falsely elevate share_of_tier to 1.0.
-                if observed_rpm < 30:
-                    continue
-
-                _NOISY_USER_MIN_RPM = 60   # 1 rps; below this a "30% share" is sampling noise
-
-                for user in obs.regions[region][tier].top_users:
-                    if user.share_of_tier <= 0.30:
-                        continue
-                    # Sparse-traffic regions (e.g. Asia free at 3rps) can produce
-                    # spurious >30% shares from any user that happens to land in
-                    # the top-N gauge sample. Require the user themself to be
-                    # generating meaningful traffic before throttling them.
-                    if user.rps * 60.0 < _NOISY_USER_MIN_RPM:
-                        continue
-                    u_last = self._override_ts.get(user.user_id)
-                    if u_last is not None and (now - u_last) < self._HYSTERESIS_S:
-                        continue
-                    # Throttle against the fixed baseline (not cur_limit_rpm).
-                    # cur_limit_rpm can be reduced by Rule 1, which would make
-                    # the override value shrink each cycle — 30 → 21 → 14 → …
-                    # Using DEMO_BASELINE keeps it stable: 30/min for free tier.
-                    throttle = max(10, DEMO_BASELINE[tier] // 10)
-                    decisions.append(Decision(
-                        type="override", region=region, tier=tier,
-                        user_id=user.user_id,
-                        limit_per_minute=throttle,
-                        ttl=self._OVERRIDE_TTL,
-                        reason=f"noisy_neighbor_{user.user_id}",
-                    ))
-                    self._override_ts[user.user_id] = now
 
         return decisions

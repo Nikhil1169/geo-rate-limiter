@@ -265,3 +265,43 @@ class TestRule4Hysteresis:
         eu_free_d2 = [d for d in d2 if d.type == "policy" and d.tier == "free" and d.region == "eu"]
         assert len(us_free_d2) == 0  # hysteresis blocks us
         assert len(eu_free_d2) == 0  # hysteresis blocks eu too (its own hysteresis entry)
+
+    def test_rule3_fires_during_rule1_hysteresis(self):
+        """Per-user overrides must still land while (region, tier) is locked
+        out of tier-policy changes. The original code applied Rule 4 as a single
+        gate for all rules, which caused noisy_neighbor's per-user throttle to
+        be delayed by 60 s after Rule 1 fired in the prior tick — exactly the
+        demo-blocking timing issue described in docs/demo-prep.md §5a-B.
+        """
+        decider = Decider()
+
+        # Tick 1: rising tier RPS but no concentrated top user yet (Prom gauge
+        # sample lags). Rule 1 fires, locks (us, free) for 60 s.
+        tick1_obs = _obs({
+            ("us", "free"):    _snap(rps=1.0, rejection_rate=0.0, top_users=[]),
+            ("us", "premium"): _snap(rps=0.5, rejection_rate=0.05),
+        })
+        fc = _forecasts(us_free=4.5)  # 270 > 0.8 * 300 → Rule 1
+        policies = _policies(us_free=300, us_premium=3_000)
+        d1 = decider.decide(tick1_obs, fc, _no_anomalies(), policies)
+        assert any(
+            d.type == "policy" and d.tier == "free" and "predicted_spike" in d.reason
+            for d in d1
+        ), "Tick 1 must fire Rule 1 to set up the hysteresis lockout"
+
+        # Tick 2: top-N gauge sample now reveals a real abuser at 50% share +
+        # 1 rps (= 60 rpm, above the per-user floor). Rule 3 MUST fire even
+        # though (us, free) is locked out of tier-policy changes.
+        tick2_obs = _obs({
+            ("us", "free"): _snap(
+                rps=2.0, rejection_rate=0.0,
+                top_users=[UserStat(user_id="free_00001", rps=1.0, share_of_tier=0.50)],
+            ),
+            ("us", "premium"): _snap(rps=0.5, rejection_rate=0.05),
+        })
+        d2 = decider.decide(tick2_obs, fc, _no_anomalies(), policies)
+        overrides = [d for d in d2 if d.type == "override" and d.user_id == "free_00001"]
+        assert len(overrides) == 1, (
+            f"Rule 3 must fire even when (us, free) is in Rule 1 hysteresis. "
+            f"Got: {d2}"
+        )
