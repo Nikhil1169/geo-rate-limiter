@@ -371,22 +371,44 @@ def _is_running(key: str) -> bool:
     return proc is not None and proc.poll() is None
 
 
+_GATEWAY_URLS = {
+    "gateway-us":   _svc.get("gateways", {}).get("us",   os.getenv("GATEWAY_US_URL",   "http://localhost:8081")),
+    "gateway-eu":   _svc.get("gateways", {}).get("eu",   os.getenv("GATEWAY_EU_URL",   "http://localhost:8082")),
+    "gateway-asia": _svc.get("gateways", {}).get("asia", os.getenv("GATEWAY_ASIA_URL", "http://localhost:8083")),
+}
+
+
 def _docker_status() -> list[dict]:
-    """Return [{name, status}] for every running container via docker ps."""
+    """Return service-level health for the components shown in the dashboard.
+
+    We probe Redis instances + gateways + Prometheus directly instead of shelling
+    out to the docker CLI (which isn't installed inside the api container). The
+    response shape stays {name, status} so the dashboard's container-health pill
+    keeps working unchanged.
+    """
+    out: list[dict] = []
+
+    for region, cfg in REDIS_CONFIGS.items():
+        try:
+            redis.Redis(host=cfg["host"], port=cfg["port"], socket_connect_timeout=1, socket_timeout=1).ping()
+            out.append({"name": f"redis-{region}", "status": "ok"})
+        except Exception as exc:
+            out.append({"name": f"redis-{region}", "status": f"down: {exc}"})
+
+    for name, url in _GATEWAY_URLS.items():
+        try:
+            r = requests.get(f"{url.rstrip('/')}/health", timeout=1.5)
+            out.append({"name": name, "status": "ok" if r.ok else f"down: HTTP {r.status_code}"})
+        except Exception as exc:
+            out.append({"name": name, "status": f"down: {exc}"})
+
     try:
-        result = subprocess.run(
-            ["docker", "ps", "--format", "{{.Names}}\t{{.Status}}"],
-            capture_output=True, text=True, timeout=5,
-        )
-        containers = []
-        for line in result.stdout.strip().splitlines():
-            if "\t" in line:
-                name, status = line.split("\t", 1)
-                containers.append({"name": name.strip(), "status": status.strip()})
-        return containers
+        r = requests.get(f"{PROM_URL.rstrip('/')}/-/ready", timeout=1.5)
+        out.append({"name": "prometheus", "status": "ok" if r.ok else f"down: HTTP {r.status_code}"})
     except Exception as exc:
-        _ctrl_log.warning("docker ps failed: %s", exc)
-        return [{"name": "docker", "status": f"error: {exc}"}]
+        out.append({"name": "prometheus", "status": f"down: {exc}"})
+
+    return out
 
 
 # ── Control endpoints ─────────────────────────────────────────────────────────

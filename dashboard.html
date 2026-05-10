@@ -343,8 +343,8 @@
     function DataTable({ cols, rows, empty }) {
       if (!rows || rows.length===0) return <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'48px 0', color:'#3a3a3a', fontSize:13 }}>{empty}</div>;
       return (
-        <div style={{ overflowY:'auto', flex:1 }}>
-          <table style={{ width:'100%', borderCollapse:'collapse' }}>
+        <div style={{ overflowY:'auto', overflowX:'auto', flex:1, minWidth:0 }}>
+          <table style={{ width:'100%', borderCollapse:'collapse', tableLayout:'fixed' }}>
             <thead>
               <tr style={{ background:'#111', position:'sticky', top:0, zIndex:1 }}>
                 {cols.map(c => <th key={c} style={{ padding:'8px 14px', textAlign:'left', fontSize:10, color:'#404040', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', whiteSpace:'nowrap' }}>{c}</th>)}
@@ -1318,14 +1318,16 @@
     }
 
     // ─── ContainerRow ─────────────────────────────────────────────────────────
+    const isContainerUp = (status='') => status === 'ok' || status.startsWith('Up');
     function ContainerRow({ name, status }) {
-      const up = status.startsWith('Up');
+      const up = isContainerUp(status);
       const color = up ? '#10b981' : '#ef4444';
+      const label = up ? (status === 'ok' ? 'ok' : status.replace(/^Up /,'')) : 'down';
       return (
         <div style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 0', borderBottom:'1px solid #161616' }}>
           <div style={{ width:6, height:6, borderRadius:'50%', background:color, flexShrink:0, boxShadow:up?`0 0 5px ${color}66`:'none' }}/>
           <span style={{ fontSize:11, color:'#888', fontFamily:'monospace', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{name}</span>
-          <span style={{ fontSize:10, color:up?'#10b98170':'#ef444470' }}>{up ? status.replace(/^Up /,'') : 'down'}</span>
+          <span style={{ fontSize:10, color:up?'#10b98170':'#ef444470' }}>{label}</span>
         </div>
       );
     }
@@ -1428,8 +1430,8 @@
 
       const { agent={}, simulator={}, containers=[] } = ctrlStatus;
       const uptime  = useAnimatedNumber(agent.uptime_seconds??0, 500);
-      const allUp   = containers.length > 0 && containers.every(c=>c.status.startsWith('Up'));
-      const downN   = containers.filter(c=>!c.status.startsWith('Up')).length;
+      const allUp   = containers.length > 0 && containers.every(c=>isContainerUp(c.status));
+      const downN   = containers.filter(c=>!isContainerUp(c.status)).length;
       const sliderPct = Math.round(((duration-30)/(300-30))*100);
       const progress  = simDur && countdown!=null ? Math.min(100, ((simDur-countdown)/simDur)*100) : 0;
 
