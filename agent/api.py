@@ -106,6 +106,13 @@ VALID_SCENARIOS: frozenset[str] = frozenset({"noisy_neighbor", "product_launch",
 _procs: dict[str, subprocess.Popen | None] = {"agent": None, "simulator": None}
 _proc_started: dict[str, float] = {}
 
+# Tracks when the current scenario started, so /api/decisions can filter
+# the global decisions.jsonl to entries from the active scenario only and
+# the dashboard's Live Agent Decisions panel doesn't show stale reasons
+# from the prior scenario. Set by /api/control/scenario; cleared by reset.
+_scenario_started_ms: int | None = None
+_scenario_active: str | None = None
+
 # Agent config saved at start-time so /api/model/metrics knows what's running
 _agent_config: dict = {}   # {"predictor": "ewma"|"holtwinters", "interval": 15}
 
@@ -232,6 +239,18 @@ def api_metrics():
 
 @app.route("/api/decisions")
 def api_decisions():
+    # Filter to current-scenario entries by default so the Live Agent
+    # Decisions panel doesn't show reasons from the previous scenario.
+    # ?since=<ms> overrides; ?since=0 disables filtering entirely.
+    since_param = request.args.get("since")
+    if since_param is not None:
+        try:
+            since_ms = int(since_param)
+        except ValueError:
+            since_ms = 0
+    else:
+        since_ms = _scenario_started_ms or 0
+
     entries = []
     try:
         path = DECISIONS_PATH if DECISIONS_PATH.is_absolute() else Path.cwd() / DECISIONS_PATH
@@ -249,6 +268,8 @@ def api_decisions():
                 try:
                     tick = json.loads(line)
                     ts = tick.get("timestamp", 0)
+                    if since_ms and ts < since_ms:
+                        continue
                     for dec in tick.get("decisions", []):
                         entries.append({
                             "ts": ts,
@@ -468,8 +489,15 @@ def api_control_scenario():
         )
         _procs["simulator"]    = proc
         _proc_started["simulator"] = time.time()
-        _ctrl_log.info("simulator started pid=%d scenario=%s", proc.pid, scenario)
-        return jsonify({"status": "started", "pid": proc.pid, "scenario": scenario, "overrides_scrubbed": scrubbed})
+        global _scenario_started_ms, _scenario_active
+        _scenario_started_ms = int(time.time() * 1000)
+        _scenario_active = scenario
+        _ctrl_log.info("simulator started pid=%d scenario=%s started_ms=%d", proc.pid, scenario, _scenario_started_ms)
+        return jsonify({
+            "status": "started", "pid": proc.pid, "scenario": scenario,
+            "overrides_scrubbed": scrubbed,
+            "started_ms": _scenario_started_ms,
+        })
     except Exception as exc:
         _ctrl_log.error("simulator start failed: %s", exc)
         return jsonify({"status": "error", "message": str(exc)}), 500
