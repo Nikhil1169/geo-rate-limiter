@@ -16,6 +16,7 @@ in gateway/internal/policy/policy.go and are not changed here.
 
 import argparse
 import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -40,9 +41,9 @@ _DEMO = {
 }
 
 REGIONS = {
-    "us":   6379,
-    "eu":   6380,
-    "asia": 6381,
+    "us":   (os.getenv("REDIS_US_HOST",   "localhost"), int(os.getenv("REDIS_US_PORT",   "6379"))),
+    "eu":   (os.getenv("REDIS_EU_HOST",   "localhost"), int(os.getenv("REDIS_EU_PORT",   "6380"))),
+    "asia": (os.getenv("REDIS_ASIA_HOST", "localhost"), int(os.getenv("REDIS_ASIA_PORT", "6381"))),
 }
 
 # Seed uses seq=1 (static) or seq=2 (demo) so agent-written policies
@@ -65,12 +66,12 @@ def make_policy(region: str, tier: str, defaults: dict, seq: int) -> dict:
     }
 
 
-def seed_region(region: str, port: int, defaults: dict, seq: int) -> None:
+def seed_region(region: str, host: str, port: int, defaults: dict, seq: int) -> None:
     try:
-        r = redis.Redis(host="localhost", port=port, decode_responses=True)
+        r = redis.Redis(host=host, port=port, decode_responses=True)
         r.ping()
     except Exception as e:
-        print(f"  [SKIP] {region} (localhost:{port}): {e}")
+        print(f"  [SKIP] {region} ({host}:{port}): {e}")
         return
 
     for tier in defaults:
@@ -94,9 +95,9 @@ def main() -> None:
     label = "demo baselines" if args.demo else "static defaults"
 
     print(f"Seeding policies [{label}] to all regional Redis instances...")
-    for region, port in REGIONS.items():
-        print(f"\n[{region}] localhost:{port}")
-        seed_region(region, port, defaults, seq)
+    for region, (host, port) in REGIONS.items():
+        print(f"\n[{region}] {host}:{port}")
+        seed_region(region, host, port, defaults, seq)
     print("\nDone.")
 
 
