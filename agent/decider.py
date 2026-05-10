@@ -149,8 +149,16 @@ class Decider:
                 if observed_rpm < 30:
                     continue
 
+                _NOISY_USER_MIN_RPM = 60   # 1 rps; below this a "30% share" is sampling noise
+
                 for user in obs.regions[region][tier].top_users:
                     if user.share_of_tier <= 0.30:
+                        continue
+                    # Sparse-traffic regions (e.g. Asia free at 3rps) can produce
+                    # spurious >30% shares from any user that happens to land in
+                    # the top-N gauge sample. Require the user themself to be
+                    # generating meaningful traffic before throttling them.
+                    if user.rps * 60.0 < _NOISY_USER_MIN_RPM:
                         continue
                     u_last = self._override_ts.get(user.user_id)
                     if u_last is not None and (now - u_last) < self._HYSTERESIS_S:
