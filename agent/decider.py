@@ -168,13 +168,20 @@ class Decider:
                         continue
 
                 # ── Rule 2 — capacity restoration ────────────────────────────
+                # Also fires when the policy key has expired entirely: Redis
+                # returns STATIC_FALLBACK (10/100/1000) instead of the seeded
+                # baseline, which makes the dashboard show "Not set" and silently
+                # drops the gateway's effective limit. In that case restore to
+                # baseline immediately regardless of rejection_rate.
                 baseline_rpm = DEMO_BASELINE[tier]
-                if (
+                key_missing  = cur_limit_rpm <= STATIC_FALLBACK[tier]
+                slow_restore = (
                     forecast_rpm < 0.5 * cur_limit_rpm
                     and rejection_rate > 0
                     and cur_limit_rpm < baseline_rpm
-                ):
-                    step_rpm = min(baseline_rpm, int(cur_limit_rpm * 1.20))
+                )
+                if slow_restore or (key_missing and cur_limit_rpm < baseline_rpm):
+                    step_rpm = baseline_rpm if key_missing else min(baseline_rpm, int(cur_limit_rpm * 1.20))
                     decisions.append(Decision(
                         type="policy", region=region, tier=tier, user_id=None,
                         limit_per_minute=step_rpm,
