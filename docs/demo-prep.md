@@ -234,13 +234,10 @@ Each row is a single PR-sized chunk. Acceptance criteria shown in *italics*.
      in `docker-compose.production.yml`.
    - *Acceptance: `docker compose ps` shows dashboard `(healthy)`.*
 
-### Round 3 — completeness
+### Round 3 — completeness ✅ done
 
-8. **Issue G — Holt-Winters predictor end-to-end test**
-   - Run all four scenarios with `predictor=holtwinters`, capture decisions
-     and MAE for parity with EWMA.
-   - *Acceptance: noisy_neighbor produces equivalent overrides under
-     Holt-Winters; document any timing differences.*
+8. ~~**Issue G — Holt-Winters predictor end-to-end test.**~~ Tested. See
+   §10 below.
 
 ---
 
@@ -267,3 +264,36 @@ Each row is a single PR-sized chunk. Acceptance criteria shown in *italics*.
 - **Doc location for failure modes.** `docs/failure-modes.md` covers what
   happens when subsystems break; this `demo-prep.md` covers presentation.
   Eventually consolidate into one Runbook?
+
+---
+
+## 10. Predictor comparison (Issue G test results)
+
+End-to-end run through all four scenarios with `predictor=holtwinters`,
+agent warmed for 10+ minutes (HW requires 40 samples at 15 s tick before
+`fit()` returns a fitted model).
+
+| Scenario | EWMA | Holt-Winters |
+|---|---|---|
+| `global_steady` warm-up | 0 decisions, calm | **6 false predicted_spike** decisions on near-zero idle data — seasonal/trend components amplify noise |
+| `noisy_neighbor` | Both abusers throttled @ 30/min by t≈75 s, no collateral | Both abusers throttled ✓ BUT collateral **eu/free → 5/min** false-spike (EU is at baseline 5 rps with no anomaly) |
+| `product_launch` | Single Rule 1 cascade (free → 210/min, premium +10%); MAE 0.5414 | Triple Rule 1 cascade (free → 147 → 102 → 71/min) PLUS false-spikes for EU and Asia; MAE 2.7371 (5× worse); HW overpredicts 3× (last_pred 116.8 RPS vs last_actual 41.0) |
+| `region_failover` | Clean US-out / US-in handling | Identical — failover behaviour is not predictor-dependent |
+| Confidence interval bounds | n/a (EWMA doesn't produce CI) | **None** in practice — `simulate()` is silently catching an exception inside `predictor.py`, so the dashboard CI bands never light up |
+
+**Verdict**: keep EWMA as the default for the live demo. Holt-Winters
+catches the noisy_neighbor signal correctly but is far too aggressive
+everywhere else — every region/tier with non-trivial baseline traffic
+triggers false `predicted_spike_*` decisions, the per-tier policy
+cascades 3-deep before the 60 s tier hysteresis takes effect, and the
+CI bands that justify the model's complexity never actually appear in
+the UI. The HW dropdown option should either be hidden until the CI
+exception is fixed or relabelled `holtwinters (experimental)`.
+
+Recommended follow-ups if HW is kept on the menu:
+- Catch and surface the `simulate()` exception so CI bands work.
+- Add a `min_signal_rpm` floor (similar to Rule 3's `_NOISY_USER_MIN_RPM`)
+  so HW doesn't fire predicted_spike on regions whose RPS is comfortably
+  under their seeded limit even with the trend component included.
+- Reduce `seasonal_periods` from 20 to 4 (1 minute) so the model doesn't
+  imprint a 5-minute pattern on traffic that has no such cycle.
