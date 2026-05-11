@@ -188,7 +188,11 @@ services:
     depends_on: [api]
     networks: [rate-limiter-net]
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      # nginx listens on IPv4 only; localhost in alpine resolves to IPv6
+      # first, which fails with "connection refused" and leaves the
+      # container marked unhealthy even though the page works fine over
+      # the host port. Use 127.0.0.1 explicitly. See docs/demo-prep.md §5b-F.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/"]
       interval: 10s
       timeout: 5s
       retries: 3

@@ -1604,7 +1604,7 @@
     // ─── TierHealthPanel ──────────────────────────────────────────────────────
     const RTooltip = Tooltip;
 
-    function TierHealthPanel({ latency, loading, onExpand, totalRps = 0 }) {
+    function TierHealthPanel({ latency, loading, onExpand, totalRps = 0, agentRunning = false }) {
       const noTraffic = totalRps < 0.1;
       const ms       = noTraffic ? 0 : (latency?.tier_latency_ms ?? 0);
       const count    = latency?.congestion_count ?? 0;
@@ -1698,7 +1698,9 @@
                   ? <div style={{ fontSize:11, color:'#2a2a2a', marginTop:4 }}>
                       {ms < 20
                         ? <span style={{ color:'#10b98199' }}>✓ No abusers detected</span>
-                        : 'Agent not running or warming up'}
+                        : !agentRunning
+                          ? <span style={{ color:'#ef444499' }}>Agent not running</span>
+                          : <span style={{ color:'#f59e0b99' }}>Tier congestion — no single abuser</span>}
                     </div>
                   : abusers.map(a => (
                     <div key={a.user_id} style={{ display:'flex', alignItems:'center', gap:7,
@@ -1870,7 +1872,7 @@
                 );
               })()}
 
-              <TierHealthPanel latency={latencyData} loading={loading} onExpand={openModal} totalRps={metrics?.total_rps ?? 0}/>
+              <TierHealthPanel latency={latencyData} loading={loading} onExpand={openModal} totalRps={metrics?.total_rps ?? 0} agentRunning={!!ctrlStatus?.agent?.running}/>
 
               <ModelPerformancePanel modelData={modelMetrics} onExpand={openModal}/>
 
