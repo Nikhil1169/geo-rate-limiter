@@ -184,10 +184,22 @@ func check(d Deps) gin.HandlerFunc {
 					// Previously used pol.GlobalLimit (= Limit*3 = 900) as the threshold,
 					// but that made the threshold 450 — impossible to reach since users
 					// are capped at Limit (300) allowed requests per window.
+					//
+					// On the false branch we DeleteLabelValues so the series ends
+					// instead of going stale: Prometheus's default 5-min stale-marker
+					// would otherwise keep the previous gauge value alive across an
+					// entire later scenario, causing the agent to fire Rule 3 on
+					// users that stopped being noisy minutes ago. See
+					// docs/demo-prep.md §5a-H. Delete is a no-op if the series
+					// doesn't exist, so it's safe to call every request.
 					if sum*2 >= pol.Limit {
 						metrics.CounterValue.WithLabelValues(
 							d.Region, req.Tier, req.UserID,
 						).Set(float64(sum))
+					} else {
+						metrics.CounterValue.DeleteLabelValues(
+							d.Region, req.Tier, req.UserID,
+						)
 					}
 				}
 			}

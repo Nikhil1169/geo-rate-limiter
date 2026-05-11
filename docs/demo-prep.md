@@ -4,7 +4,8 @@ Source of truth for the Phase 9 live demo. Captures what's shipped, what's
 still broken, the recommended presentation flow, and the order in which the
 remaining issues should be fixed.
 
-Last updated: 2026-05-10. Reflects PR #1 commits + post-merge re-run audit.
+Last updated: 2026-05-10 (post round-1 fixes). Reflects PR #1 commits, the
+post-merge re-run audit, and Round 1 follow-up fixes (B + C).
 
 ---
 
@@ -21,8 +22,8 @@ Audience for the demo is mixed engineering / non-engineering — they need to se
 
 ## 2. What's already shipped (PR #1 — `fix/demo-stability`)
 
-5 commits, all pushed to `yashashav-dk:fix/demo-stability`, PR open against
-`Nikhil1169:main`.
+7 commits + 1 docs commit, all pushed to `yashashav-dk:fix/demo-stability`,
+PR open against `Nikhil1169:main`.
 
 | Commit | What it fixed |
 |---|---|
@@ -31,6 +32,9 @@ Audience for the demo is mixed engineering / non-engineering — they need to se
 | `60be356` | Decisions table flex-overflow at narrow viewports; replaced broken `docker ps` shell-out container-health probe with in-network Redis PING + gateway `/health` + Prometheus `/-/ready`. |
 | `3518610` | `allow_rate` clipped to ≤100 (transient Prom rate-window glitch was producing 206.5%); `override:*` keys scrubbed at scenario start so abuser throttles from one scenario don't bleed into the next. |
 | `e228c05` | Rule 3 (noisy-neighbor override) now requires absolute per-user ≥60 rpm in addition to >30% share — kills sparse-region false positives in Asia. `global_steady` recalibrated from 10/6/4 rps to 3/2/1.5 rps so per-tier RPS stays under seeded limits. Corrected `region_failover` description to use the real `gateway-us` container name. |
+| `c388049` | This spec. |
+| `b5be53e` | **Round 1 — Issue B**: Rule 3 (noisy_neighbor override) moved above Rule 4's hysteresis gate so per-user throttles fire even when (region, tier) is locked out of tier-policy changes. Demo storyline now plays out by t≈75 s instead of waiting ~130 s. New unit test covers the tick-1 → tick-2 sequence. |
+| `89fd850` | **Round 1 — Issue C**: `/api/decisions` filters to current-scenario timestamps by default so the Live Agent Decisions panel doesn't show prior-scenario reasons. Tracks `_scenario_started_ms` set when `/api/control/scenario` fires. `?since=<ms>` overrides; `?since=0` returns full history. |
 
 ---
 
@@ -100,11 +104,12 @@ All four are defined in `simulator/scenarios.py` and dispatched via
 
 ### 5a. Demo-blocking
 
-| ID | Severity | Issue | Where |
+| ID | Status | Issue | Where |
 |---|---|---|---|
-| **A** | High | **Sim cannot sustain product_launch target RPS.** Total RPS plateaus at ~7-10 versus advertised 50 rps US spike. Suspect httpx connection-pool / `asyncio.gather` semaphore default. Visible result: spike phase looks like a bump, not a spike. | `simulator/engine.py` |
-| **B** | High | **`noisy_neighbor` storyline takes ~130 s, not 60 s.** Rule 1 (predicted_spike) wins the tick race against Rule 3 (noisy_neighbor) because the predictor sees rising RPS first; Rule 1 sets a 60 s tier-level hysteresis lockout that blocks Rule 3 until ~t=90-120 s. Doc and current scenario description claim ~60 s. | `agent/decider.py` rule ordering, `simulator/scenarios.py` description |
-| **C** | Medium | **Decisions feed is global, not scenario-scoped.** Switching scenarios shows the previous run's reasons in the Live Agent Decisions panel, which confuses viewers. Scrub-on-start would help, but doesn't help the rolling JSONL log used by `/api/decisions`. | `agent/api.py:/api/decisions`, dashboard.html `DecisionsFeed` |
+| ~~**A**~~ | **Retracted (round 1)** | Sim throughput was a false alarm. Re-measured at 53-56 rps total during product_launch spike phase (96% of 58 rps target); US alone hits 47 rps consistently. Earlier 7.4 rps reading was a one-off, likely from a stale low policy still in Redis from a prior failed run. No code change needed. | n/a |
+| ~~**B**~~ | **Fixed (`b5be53e`)** | Rule 3 moved above Rule 4 hysteresis gate. noisy_neighbor now overrides both bias users by t≈75 s on a warm agent. Verified live + unit-tested. | `agent/decider.py` |
+| ~~**C**~~ | **Fixed (`89fd850`)** | `/api/decisions` defaults to filtering by `_scenario_started_ms`. Switching from noisy_neighbor → product_launch now shows count=0 immediately and contains only current-scenario reasons once the agent ticks. | `agent/api.py` |
+| **H** *(new)* | High | **Prometheus `rl_counter_value` gauge staleness leaks across scenarios.** Surfaced during Issue C verification. After noisy_neighbor ends, the gateway stops emitting `rl_counter_value` for `free_00001/00002`, but Prometheus retains the last-seen value for ~5 min via the default stale-marker. The agent reads these as live top users on every tick of the *next* scenario and fires Rule 3 overrides for users the new sim isn't even biasing. Visible symptom: product_launch shows `noisy_neighbor_free_00001` overrides with timestamps after the scenario switch. | gateway emission policy + Prometheus retention |
 
 ### 5b. UX rough edges
 
@@ -122,6 +127,7 @@ All four are defined in `simulator/scenarios.py` and dispatched via
 | `rl_decision_duration_seconds` missing from Prom | **False finding** — histogram exposes `_bucket`/`_sum`/`_count`, not bare metric. Audit query was wrong. Contract 3 is satisfied. |
 | `active_users` reads 0 | Prometheus query timing — recovers within a few ticks. Not a real bug. |
 | Model panel empty `{}` after agent restart | Already shows "warming up (n/8)" once the predictor has a few samples. UX is correct. |
+| Sim throughput cap (was Issue A) | **Retracted** — re-measured at 53-56 rps total / 47 rps US during spike (96% of 58 rps target). Original 7.4 rps reading was a one-off from a stale low policy in Redis. |
 
 ### 5d. Cross-cutting backlog (not demo-critical)
 
@@ -191,52 +197,47 @@ If sim stalls or a scenario stops emitting, switch to:
 
 Each row is a single PR-sized chunk. Acceptance criteria shown in *italics*.
 
-### Round 1 — demo-blocking
+### Round 1 — demo-blocking ✅ done
 
-1. **Issue B — Rule ordering / hysteresis interaction** (highest demo impact)
-   - Option B1: detect `has_noisy_neighbor` before Rule 4's hysteresis gate, so
-     Rule 3 can fire even when (region, tier) is in lockout from Rule 1.
-   - Option B2: drop tier-policy hysteresis to 30 s.
-   - Option B3: have Rule 1 also enqueue a Rule-3 evaluation pass for the same
-     tick before returning.
-   - *Acceptance: noisy_neighbor produces overrides for both bias users by
-     t≤75 s on a warm agent.*
+1. ~~**Issue B — Rule ordering / hysteresis interaction.**~~ Shipped in
+   `b5be53e`. Rule 3 moved above Rule 4 hysteresis gate; per-user overrides
+   fire independent of tier-policy lockout. Verified live at t≈75 s.
+2. ~~**Issue A — Sim throughput.**~~ Retracted, see §5c.
+3. ~~**Issue C — Scenario-scoped decisions feed.**~~ Shipped in `89fd850`.
+   `/api/decisions` defaults to `ts >= _scenario_started_ms`.
 
-2. **Issue A — Sim throughput**
-   - Configure httpx `Limits(max_keepalive_connections=200, max_connections=200)`,
-     bump `_run_stream_group` semaphore from default to 100.
-   - *Acceptance: product_launch sustains ≥40 rps US during the spike phase
-     for at least 30 s as visible on Total RPS sparkline.*
+### Round 2 — Prom staleness + UX polish
 
-3. **Issue C — Scenario-scoped decisions feed**
-   - Cheapest: api remembers `_scenario_started_ms` per scenario start, the
-     `/api/decisions` endpoint filters JSONL entries by `ts >= started_ms`.
-   - *Acceptance: switching from `noisy_neighbor` to `product_launch` shows an
-     empty Live Agent Decisions panel for the first 15 s of the new scenario.*
+4. **Issue H — Prometheus `rl_counter_value` cross-scenario leak** (high impact)
+   - Surfaced during Round 1 verification. Two practical options:
+     - H1: Set Prometheus `--query.lookback-delta=30s` in
+       `docker-compose.production.yml` (default is 5 min; tighter delta makes
+       Prom mark gauges stale much sooner once gateway stops emitting).
+     - H2: Have the gateway proactively `Delete` `rl_counter_value` for users
+       whose Redis G-counter falls below the 50% sampling threshold, so the
+       gauge series simply ends instead of going stale.
+     - H1 is one line, H2 is more correct. Start with H1 for the demo.
+   - *Acceptance: switching scenarios with no shared bias users no longer
+     produces phantom Rule 3 overrides for users from the prior scenario.*
 
-### Round 2 — UX polish
-
-4. **Issue E — Latency tile peak preservation**
+5. **Issue E — Latency tile peak preservation**
    - Add a `peak60s` sub-stat to the Tier Latency `MetricCard`.
    - *Acceptance: tile shows current value AND "peak 161ms 30s ago" sub-stat.*
 
-5. **Issue D — "Agent not running or warming up" misleading text**
+6. **Issue D — "Agent not running or warming up" misleading text**
    - Pass `agentRunning` prop into Active Overrides panel; show
      "No active overrides" when `agentRunning && !overrides.length`.
    - *Acceptance: panel reads "No active overrides" during global_steady.*
 
-6. **Issue F — Dashboard healthcheck false negative**
+7. **Issue F — Dashboard healthcheck false negative**
    - Replace `wget --spider` with `wget -q -O /dev/null http://localhost/`
      in `docker-compose.production.yml`.
    - *Acceptance: `docker compose ps` shows dashboard `(healthy)`.*
 
-### Round 3 — completeness
+### Round 3 — completeness ✅ done
 
-7. **Issue G — Holt-Winters predictor end-to-end test**
-   - Run all four scenarios with `predictor=holtwinters`, capture decisions
-     and MAE for parity with EWMA.
-   - *Acceptance: noisy_neighbor produces equivalent overrides under
-     Holt-Winters; document any timing differences.*
+8. ~~**Issue G — Holt-Winters predictor end-to-end test.**~~ Tested. See
+   §10 below.
 
 ---
 
@@ -263,3 +264,36 @@ Each row is a single PR-sized chunk. Acceptance criteria shown in *italics*.
 - **Doc location for failure modes.** `docs/failure-modes.md` covers what
   happens when subsystems break; this `demo-prep.md` covers presentation.
   Eventually consolidate into one Runbook?
+
+---
+
+## 10. Predictor comparison (Issue G test results)
+
+End-to-end run through all four scenarios with `predictor=holtwinters`,
+agent warmed for 10+ minutes (HW requires 40 samples at 15 s tick before
+`fit()` returns a fitted model).
+
+| Scenario | EWMA | Holt-Winters |
+|---|---|---|
+| `global_steady` warm-up | 0 decisions, calm | **6 false predicted_spike** decisions on near-zero idle data — seasonal/trend components amplify noise |
+| `noisy_neighbor` | Both abusers throttled @ 30/min by t≈75 s, no collateral | Both abusers throttled ✓ BUT collateral **eu/free → 5/min** false-spike (EU is at baseline 5 rps with no anomaly) |
+| `product_launch` | Single Rule 1 cascade (free → 210/min, premium +10%); MAE 0.5414 | Triple Rule 1 cascade (free → 147 → 102 → 71/min) PLUS false-spikes for EU and Asia; MAE 2.7371 (5× worse); HW overpredicts 3× (last_pred 116.8 RPS vs last_actual 41.0) |
+| `region_failover` | Clean US-out / US-in handling | Identical — failover behaviour is not predictor-dependent |
+| Confidence interval bounds | n/a (EWMA doesn't produce CI) | **None** in practice — `simulate()` is silently catching an exception inside `predictor.py`, so the dashboard CI bands never light up |
+
+**Verdict**: keep EWMA as the default for the live demo. Holt-Winters
+catches the noisy_neighbor signal correctly but is far too aggressive
+everywhere else — every region/tier with non-trivial baseline traffic
+triggers false `predicted_spike_*` decisions, the per-tier policy
+cascades 3-deep before the 60 s tier hysteresis takes effect, and the
+CI bands that justify the model's complexity never actually appear in
+the UI. The HW dropdown option should either be hidden until the CI
+exception is fixed or relabelled `holtwinters (experimental)`.
+
+Recommended follow-ups if HW is kept on the menu:
+- Catch and surface the `simulate()` exception so CI bands work.
+- Add a `min_signal_rpm` floor (similar to Rule 3's `_NOISY_USER_MIN_RPM`)
+  so HW doesn't fire predicted_spike on regions whose RPS is comfortably
+  under their seeded limit even with the trend component included.
+- Reduce `seasonal_periods` from 20 to 4 (1 minute) so the model doesn't
+  imprint a 5-minute pattern on traffic that has no such cycle.

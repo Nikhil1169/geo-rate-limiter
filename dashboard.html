@@ -551,10 +551,15 @@
     }
 
     // ─── MetricCard ───────────────────────────────────────────────────────────
-    function MetricCard({ title, rawValue, decimals=0, unit, sub, color, spark, loading, isInt=false, onExpand, live=false }) {
+    function MetricCard({ title, rawValue, decimals=0, unit, sub, color, spark, loading, isInt=false, onExpand, live=false, peak=null }) {
       const animated = useAnimatedNumber(rawValue??0, 500);
       const display  = rawValue==null ? '—' : isInt ? Math.round(animated).toLocaleString() : animated.toFixed(decimals);
       const canExpand = !loading && spark && spark.length >= 2 && onExpand;
+      // peak: { value:number, unit:string, ageSeconds:number } | null
+      // Used for moment-only metrics (e.g. tier latency) so demo viewers
+      // who look up a few seconds late don't miss the storyline.
+      const showPeak = !loading && peak && peak.value != null && peak.ageSeconds != null
+                       && peak.value > (rawValue ?? 0) * 1.1 && peak.value > 0;
       return (
         <div style={{ background:'#1a1a1a', border:'1px solid #222', borderRadius:12, padding:'20px 20px 14px', display:'flex', flexDirection:'column', gap:4 }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
@@ -572,6 +577,12 @@
           <div style={{ display:'flex', alignItems:'baseline', gap:5, marginTop:4 }}>
             {loading ? <Skeleton h={32} w={80} r={6} /> : <span style={{ fontSize:30, fontWeight:700, color:'#f3f4f6', letterSpacing:'-0.03em', lineHeight:1, fontVariantNumeric:'tabular-nums' }}>{display}</span>}
             {unit && !loading && <span style={{ fontSize:13, color:'#4a4a4a' }}>{unit}</span>}
+            {showPeak && (
+              <span style={{ fontSize:10, color:'#f59e0b', marginLeft:4, fontVariantNumeric:'tabular-nums' }}
+                    title={`peak ${peak.value}${peak.unit||''} ${peak.ageSeconds}s ago`}>
+                ↑ peak {Math.round(peak.value)}{peak.unit||''} · {peak.ageSeconds}s ago
+              </span>
+            )}
           </div>
           {sub && !loading && <span style={{ fontSize:11, color:'#404040' }}>{sub}</span>}
           <div
@@ -1593,7 +1604,7 @@
     // ─── TierHealthPanel ──────────────────────────────────────────────────────
     const RTooltip = Tooltip;
 
-    function TierHealthPanel({ latency, loading, onExpand, totalRps = 0 }) {
+    function TierHealthPanel({ latency, loading, onExpand, totalRps = 0, agentRunning = false }) {
       const noTraffic = totalRps < 0.1;
       const ms       = noTraffic ? 0 : (latency?.tier_latency_ms ?? 0);
       const count    = latency?.congestion_count ?? 0;
@@ -1687,7 +1698,9 @@
                   ? <div style={{ fontSize:11, color:'#2a2a2a', marginTop:4 }}>
                       {ms < 20
                         ? <span style={{ color:'#10b98199' }}>✓ No abusers detected</span>
-                        : 'Agent not running or warming up'}
+                        : !agentRunning
+                          ? <span style={{ color:'#ef444499' }}>Agent not running</span>
+                          : <span style={{ color:'#f59e0b99' }}>Tier congestion — no single abuser</span>}
                     </div>
                   : abusers.map(a => (
                     <div key={a.user_id} style={{ display:'flex', alignItems:'center', gap:7,
@@ -1834,16 +1847,32 @@
 
             <div style={{ padding:'24px 32px 0', display:'flex', flexDirection:'column', gap:16 }}>
 
+              {(() => {
+                // Compute peak60s for the Tier Latency tile so the demo
+                // viewer doesn't miss the spike if they look up a few seconds
+                // late after the agent has already kicked in. Peak is shown
+                // only when it's >10% higher than the current reading.
+                const sparkRaw = latencyData?.tier_latency_spark ?? [];
+                const cutoff = Date.now() - 60_000;
+                const recent = sparkRaw.filter(p => p.t && p.t >= cutoff);
+                let peakLat = null;
+                if (recent.length) {
+                  const top = recent.reduce((a, b) => (b.v ?? 0) > (a.v ?? 0) ? b : a, recent[0]);
+                  peakLat = { value: top.v ?? 0, unit: 'ms', ageSeconds: Math.max(0, Math.round((Date.now() - top.t) / 1000)) };
+                }
+                return (
               <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14 }}>
                 <MetricCard title="Total RPS"      rawValue={metrics?.total_rps??null}       decimals={1} unit="req/s" sub="across all regions" color="#10b981" spark={rpsSpk}   loading={loading} onExpand={openModal} live={isLive}/>
                 <MetricCard title="Allow Rate"     rawValue={metrics?.allow_rate??null}       decimals={1} unit="%"     sub="of all requests"   color="#3b82f6" spark={allowSpk} loading={loading} onExpand={openModal} live={isLive}/>
                 <MetricCard title="Tier Latency"   rawValue={latencyData?.tier_latency_ms??null} decimals={0} unit="ms" sub="US free tier congestion"
                   color={latencyData?.tier_latency_ms >= 100 ? '#ef4444' : latencyData?.tier_latency_ms >= 20 ? '#f59e0b' : '#10b981'}
-                  spark={(latencyData?.tier_latency_spark??[]).map(p=>({v:p.v}))} loading={loading} onExpand={openModal} live={isLive}/>
+                  spark={(latencyData?.tier_latency_spark??[]).map(p=>({v:p.v}))} loading={loading} onExpand={openModal} live={isLive} peak={peakLat}/>
                 <MetricCard title="AI Decisions"   rawValue={metrics?.recent_decisions??null} isInt               sub="last 24 hours"        color="#f59e0b" spark={[]}       loading={loading} onExpand={openModal}/>
               </div>
+                );
+              })()}
 
-              <TierHealthPanel latency={latencyData} loading={loading} onExpand={openModal} totalRps={metrics?.total_rps ?? 0}/>
+              <TierHealthPanel latency={latencyData} loading={loading} onExpand={openModal} totalRps={metrics?.total_rps ?? 0} agentRunning={!!ctrlStatus?.agent?.running}/>
 
               <ModelPerformancePanel modelData={modelMetrics} onExpand={openModal}/>
 
