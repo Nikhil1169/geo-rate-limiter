@@ -8,9 +8,10 @@ Read endpoints:
   GET  /api/counters             — rl:global:* slot distribution from all 3 Redis instances
 
 Control endpoints:
-  POST /api/control/scenario     — Start simulator with a named scenario
-  POST /api/control/agent/start  — Start agent in background
-  POST /api/control/agent/stop   — Stop agent process
+  POST /api/control/scenario      — Start simulator with a named scenario
+  POST /api/control/scenario/stop — Stop running simulator + clear overrides
+  POST /api/control/agent/start   — Start agent in background
+  POST /api/control/agent/stop    — Stop agent process
   GET  /api/control/status       — Agent/simulator/container health
   POST /api/control/policies/seed — Seed demo policies via tools/seed_policies.py
 """
@@ -93,8 +94,9 @@ REDIS_CONFIGS = {
 
 # ── Control configuration ─────────────────────────────────────────────────────
 
-# Repo root is one directory above agent/
-REPO_ROOT = Path(__file__).parent.parent
+# Repo root — overridable via env var so the containerised agent can point
+# at a bind-mounted copy of the repo (e.g. REPO_ROOT=/repo).
+REPO_ROOT = Path(os.getenv("REPO_ROOT", str(Path(__file__).parent.parent)))
 
 # Configurable paths — override via env vars if the layout ever changes
 SIMULATOR_SCRIPT = Path(os.getenv("SIMULATOR_SCRIPT", str(REPO_ROOT / "simulator" / "main.py")))
@@ -127,6 +129,24 @@ _ctrl_log.addHandler(_ctrl_handler)
 _rps_history: deque = deque(maxlen=20)
 _allow_history: deque = deque(maxlen=20)
 _users_history: deque = deque(maxlen=20)
+
+# ── Startup cleanup ───────────────────────────────────────────────────────────
+# decisions.jsonl is bind-mounted from the host repo, so it survives container
+# restarts. Clear it on every cold start so the dashboard shows 0 decisions
+# until the agent actually runs.
+def _decisions_path() -> Path:
+    p = DECISIONS_PATH if DECISIONS_PATH.is_absolute() else Path.cwd() / DECISIONS_PATH
+    if not p.exists():
+        p = Path(__file__).parent / "decisions.jsonl"
+    return p
+
+try:
+    _dp = _decisions_path()
+    if _dp.exists():
+        _dp.unlink()
+        _ctrl_log.info("startup: cleared stale decisions.jsonl")
+except Exception as _exc:
+    _ctrl_log.warning("startup: could not clear decisions.jsonl: %s", _exc)
 
 # ── Redis helpers ─────────────────────────────────────────────────────────────
 
@@ -519,6 +539,18 @@ def api_control_agent_start():
     if predictor not in ("ewma", "holtwinters"):
         return jsonify({"status": "error", "message": "predictor must be 'ewma' or 'holtwinters'"}), 400
 
+    # Wipe stale decisions from any previous run so the dashboard always
+    # shows only the current session (file persists on the bind-mounted volume).
+    try:
+        dpath = DECISIONS_PATH if DECISIONS_PATH.is_absolute() else Path.cwd() / DECISIONS_PATH
+        if not dpath.exists():
+            dpath = Path(__file__).parent / "decisions.jsonl"
+        if dpath.exists():
+            dpath.unlink()
+            _ctrl_log.info("cleared stale decisions.jsonl before agent start")
+    except Exception as exc:
+        _ctrl_log.warning("could not clear decisions.jsonl: %s", exc)
+
     cmd = [sys.executable, "-m", "agent.main", "run",
            "--predictor", predictor, "--interval", str(interval)]
     _ctrl_log.info("START agent: %s", " ".join(cmd))
@@ -580,6 +612,39 @@ def api_control_agent_stop():
         return jsonify({"status": "error", "message": str(exc)}), 500
 
 
+@app.route("/api/control/scenario/stop", methods=["POST"])
+def api_control_scenario_stop():
+    """Stop the running simulator process and optionally clear overrides."""
+    body = request.get_json(silent=True) or {}
+    clear = body.get("clear_overrides", True)
+
+    proc = _procs.get("simulator")
+    if proc is None or proc.poll() is not None:
+        _procs["simulator"] = None
+        return jsonify({"status": "stopped", "note": "simulator was not running"})
+
+    try:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        pid = proc.pid
+        _ctrl_log.info("simulator stopped pid=%d", pid)
+        _procs["simulator"] = None
+        _proc_started.pop("simulator", None)
+
+        scrubbed = _clear_overrides() if clear else {}
+        if clear:
+            _ctrl_log.info("simulator stop: scrubbed overrides %s", scrubbed)
+
+        return jsonify({"status": "stopped", "pid": pid, "overrides_scrubbed": scrubbed})
+    except Exception as exc:
+        _ctrl_log.error("simulator stop failed: %s", exc)
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+
 @app.route("/api/control/status")
 def api_control_status():
     """Return running state for agent, simulator, and all Docker containers."""
@@ -628,9 +693,23 @@ def api_control_policies_seed():
         # Count "  SET " lines as a proxy for the number of policies written
         policies_written = result.stdout.count("  SET ")
         _ctrl_log.info("seed_policies: %d policies written", policies_written)
+
+        # Seeding is a manual reset action — clear the decisions log so the
+        # feed doesn't mix pre-seed agent activity with the new baseline state.
+        decisions_cleared = False
+        try:
+            dp = _decisions_path()
+            if dp.exists():
+                dp.unlink()
+                decisions_cleared = True
+                _ctrl_log.info("seed_policies: cleared decisions.jsonl")
+        except Exception as exc:
+            _ctrl_log.warning("seed_policies: could not clear decisions.jsonl: %s", exc)
+
         return jsonify({
             "status": "seeded",
             "policies_written": policies_written,
+            "decisions_cleared": decisions_cleared,
             "output": result.stdout.strip(),
         })
     except subprocess.TimeoutExpired:
@@ -846,16 +925,14 @@ def api_policies_current():
 
 @app.route("/api/control/redis/flush", methods=["POST"])
 def api_control_redis_flush():
-    """FLUSHALL on every regional Redis container — clears counters, policies, overrides."""
+    """FLUSHALL on every regional Redis instance via the Redis client."""
     _ctrl_log.info("FLUSH all Redis instances")
     results = {}
     errors  = []
-    for name in ("redis-us", "redis-eu", "redis-asia"):
+    for region in ("us", "eu", "asia"):
+        name = f"redis-{region}"
         try:
-            subprocess.run(
-                ["docker", "exec", name, "redis-cli", "FLUSHALL"],
-                capture_output=True, text=True, timeout=10, check=True,
-            )
+            _redis_client(region).flushall()
             results[name] = "ok"
         except Exception as exc:
             results[name] = str(exc)
@@ -875,8 +952,7 @@ def api_control_gateways_restart():
     _ctrl_log.info("RESTART gateways")
     try:
         result = subprocess.run(
-            ["docker", "compose", "restart", "gateway-us", "gateway-eu", "gateway-asia"],
-            cwd=str(REPO_ROOT),
+            ["docker", "restart", "gateway-us", "gateway-eu", "gateway-asia"],
             capture_output=True, text=True, timeout=60,
         )
         if result.returncode != 0:
@@ -907,10 +983,20 @@ def api_user_latency():
     region = request.args.get("region", "us")
     tier   = request.args.get("tier",   "free")
 
-    # Current congestion level
-    congestion = _prom_scalar(
-        f'rl_tier_congestion{{region="{region}",tier="{tier}"}}'
-    )
+    # Read the live Redis hot-key for the current 30s window — same formula as handler.go.
+    # The Prometheus gauge is NOT used for the current value because it never resets to 0
+    # when traffic stops (gauges hold their last written value indefinitely).
+    win_id = int(time.time()) // 30
+    hot_key = f"rl:tier_hot:{region}:{tier}:{win_id}"
+    try:
+        rdb = _safe_redis(region)
+        raw = rdb.get(hot_key) if rdb else None
+        congestion = float(raw) if raw else 0.0
+    except Exception:
+        # Fall back to Prometheus if Redis is unavailable
+        congestion = _prom_scalar(
+            f'rl_tier_congestion{{region="{region}",tier="{tier}"}}'
+        )
     implied_ms = max(0.0, min(congestion - THRESHOLD, MAX_DELAY))
 
     # Sparkline history of implied latency

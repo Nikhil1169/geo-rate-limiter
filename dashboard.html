@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Geo-Distributed Rate Limiter · Dashboard</title>
+  <link rel="icon" type="image/png" href="favicon.png">
 
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -340,10 +341,10 @@
         </div>
       );
     }
-    function DataTable({ cols, rows, empty }) {
+    function DataTable({ cols, rows, empty, maxHeight }) {
       if (!rows || rows.length===0) return <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'48px 0', color:'#3a3a3a', fontSize:13 }}>{empty}</div>;
       return (
-        <div style={{ overflowY:'auto', overflowX:'auto', flex:1, minWidth:0 }}>
+        <div style={{ overflowY:'auto', overflowX:'auto', flex:1, minWidth:0, ...(maxHeight ? { maxHeight } : {}) }}>
           <table style={{ width:'100%', borderCollapse:'collapse', tableLayout:'fixed' }}>
             <thead>
               <tr style={{ background:'#111', position:'sticky', top:0, zIndex:1 }}>
@@ -622,7 +623,7 @@
         );
       });
       return (
-        <Panel>
+        <Panel style={{ maxHeight:'409px' }}>
           <PanelHeader title="Live Agent Decisions" badge={badge} />
           {loading ? <div style={{ padding:'20px', display:'flex', flexDirection:'column', gap:10 }}>{[...Array(6)].map((_,i)=><Skeleton key={i} h={14} w={`${65+i*4}%`}/>)}</div>
             : <DataTable cols={['Time','Type','Region','Tier','Limit','Details']} rows={rows} empty="No agent decisions recorded yet" />}
@@ -684,7 +685,7 @@
           <PanelHeader title="Top Active Users" badge={<span style={{ fontSize:11, color:'#404040' }}>by CRDT total</span>}/>
           {loading ? <div style={{ padding:'12px 20px', display:'flex', flexDirection:'column', gap:12 }}>{[...Array(8)].map((_,i)=><Skeleton key={i} h={28}/>)}</div>
             : counters.length===0 ? <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'48px 0', color:'#3a3a3a', fontSize:13 }}>No active users — start the traffic simulator</div>
-            : <div style={{ overflowY:'auto', flex:1, padding:'6px 0' }}>{counters.slice(0,15).map((c,i)=>{
+            : <div style={{ overflowY:'auto', maxHeight:'450px', padding:'6px 0' }}>{counters.slice(0,10).map((c,i)=>{
                 const pct=Math.round((c.total/max)*100), tc=TIER_COLOR[c.tier]||'#888';
                 return <div key={i} style={{ padding:'8px 20px', borderBottom:'1px solid #1c1c1c' }}><div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:5 }}><div style={{ display:'flex', alignItems:'center', gap:8 }}><span style={{ fontSize:10, color:'#2e2e2e', width:18, textAlign:'right' }}>{i+1}</span><span style={{ fontSize:12, color:'#ccc', fontFamily:'monospace' }}>{c.user_id}</span><span style={{ fontSize:10, color:tc, fontWeight:600 }}>{c.tier}</span></div><div style={{ display:'flex', alignItems:'center', gap:10 }}><span style={{ fontSize:10, color:'#383838' }}>{[c.us>0&&`US:${c.us}`,c.eu>0&&`EU:${c.eu}`,c.asia>0&&`AS:${c.asia}`].filter(Boolean).join(' ')}</span><span style={{ fontSize:12, color:'#aaa', fontFamily:'monospace', minWidth:48, textAlign:'right' }}>{fmtNum(c.total)}</span></div></div><div style={{ height:3, background:'#1e1e1e', borderRadius:2, marginLeft:26 }}><div style={{ height:'100%', width:`${pct}%`, background:'#3b82f6', borderRadius:2, transition:'width 0.5s ease' }}/></div></div>;
               })}</div>}
@@ -1435,6 +1436,17 @@
         }
       };
 
+      const stopScenario = async () => {
+        const d = await doPost('simStop', '/api/control/scenario/stop',
+          { clear_overrides: true }, 'Scenario stopped', 'Scenario stopped — overrides cleared');
+        if (d) {
+          setRunningScenario(null);
+          setSimStart(null);
+          setSimDur(null);
+          setCountdown(null);
+        }
+      };
+
       const seedPolicies    = () => doPost('seed',  '/api/control/policies/seed',   null, 'Policies seeded (9 written)', 'Policies seeded');
       const flushRedis      = () => doPost('flush', '/api/control/redis/flush',     null, 'All Redis data cleared',       'Redis flushed (FLUSHALL ×3)');
       const restartGateways = () => doPost('gw',    '/api/control/gateways/restart', null, 'Gateways restarted',          'Gateways restarted (us/eu/asia)');
@@ -1546,10 +1558,16 @@
                 </div>
               </div>
 
-              <MagneticBtn variant="blue" fullWidth onClick={startScenario}
-                loading={busy.sim} disabled={simRunning||!scenario} successKey={successK.sim??0}>
-                {simRunning ? `Running · pid ${simulator.pid??'…'}` : (scenario ? `Start ${scenario}` : 'Select scenario')}
-              </MagneticBtn>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
+                <MagneticBtn variant="blue" onClick={startScenario}
+                  loading={busy.sim} disabled={simRunning||!scenario} successKey={successK.sim??0}>
+                  {simRunning ? `Running · pid ${simulator.pid??'…'}` : (scenario ? `Start ${scenario}` : 'Select scenario')}
+                </MagneticBtn>
+                <MagneticBtn variant="red" onClick={stopScenario}
+                  loading={busy.simStop} disabled={!simRunning} successKey={successK.simStop??0}>
+                  Stop
+                </MagneticBtn>
+              </div>
             </div>
           </SidebarSection>
 
