@@ -64,18 +64,25 @@ SCENARIOS: dict[str, ScenarioSpec] = {
     ),
     "global_steady": ScenarioSpec(
         name="global_steady",
-        description="Balanced multi-region traffic with diurnal sine overlay (5-minute window)",
+        description=(
+            "Calm multi-region baseline with diurnal sine overlay (5-minute window). "
+            "Sized so per-tier RPS stays well under the seeded limits — agent "
+            "should observe but not act."
+        ),
         streams=[
-            StreamConfig(rps=10.0, duration=300.0, region="us",   diurnal=True),
-            StreamConfig(rps=6.0,  duration=300.0, region="eu",   diurnal=True),
-            StreamConfig(rps=4.0,  duration=300.0, region="asia", diurnal=True),
+            # Tier weights: free 90%, premium 9%, internal 1%
+            # Seeded free limit = 300/min (= 5 rps). Keep US free ≈ 3 rps so
+            # forecast_rpm stays comfortably below the 0.8*limit (= 240/min) trigger.
+            StreamConfig(rps=3.0, duration=300.0, region="us",   diurnal=True),
+            StreamConfig(rps=2.0, duration=300.0, region="eu",   diurnal=True),
+            StreamConfig(rps=1.5, duration=300.0, region="asia", diurnal=True),
         ],
     ),
     "region_failover": ScenarioSpec(
         name="region_failover",
         description=(
             "All three regions for 120s. Kill gateway-us manually at ~t=60 "
-            "(`docker stop geo-rate-limiter-gateway-us-1`) to observe failover. "
+            "(`docker stop gateway-us`) to observe failover. "
             "US requests will appear as errors in stats."
         ),
         streams=[

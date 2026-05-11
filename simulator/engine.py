@@ -1,6 +1,7 @@
 import asyncio
 import dataclasses
 import math
+import os
 import time
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
@@ -14,9 +15,9 @@ if TYPE_CHECKING:
     from stats import LiveStats
 
 GATEWAY_URLS: dict[str, str] = {
-    "us":   "http://localhost:8081",
-    "eu":   "http://localhost:8082",
-    "asia": "http://localhost:8083",
+    "us":   os.getenv("GATEWAY_US_URL",   "http://localhost:8081"),
+    "eu":   os.getenv("GATEWAY_EU_URL",   "http://localhost:8082"),
+    "asia": os.getenv("GATEWAY_ASIA_URL", "http://localhost:8083"),
 }
 
 

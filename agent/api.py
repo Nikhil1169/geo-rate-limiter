@@ -200,13 +200,16 @@ def api_metrics():
     allowed_rps = _prom_scalar('sum(rate(rl_requests_total{decision="allowed"}[1m]))')
     active_users = _prom_scalar('count(rl_counter_value)')
 
-    allow_rate = round((allowed_rps / total_rps * 100) if total_rps > 0 else 0.0, 1)
+    # Clip to [0, 100]: Prometheus rate() over a 1m window can briefly
+    # report allowed > total during gateway restart counter-resets or when
+    # series labels enter/leave the rate window at different times.
+    allow_rate = round(min(100.0, max(0.0, (allowed_rps / total_rps * 100) if total_rps > 0 else 0.0)), 1)
     total_rps_r = round(total_rps, 2)
 
     # Range history for sparklines
     rps_spark = _prom_range('sum(rate(rl_requests_total[1m]))')
     allow_spark = _prom_range(
-        'sum(rate(rl_requests_total{decision="allowed"}[1m])) / sum(rate(rl_requests_total[1m])) * 100'
+        'clamp_max(sum(rate(rl_requests_total{decision="allowed"}[1m])) / sum(rate(rl_requests_total[1m])) * 100, 100)'
     )
     users_spark = _prom_range('count(rl_counter_value)')
 
@@ -371,25 +374,66 @@ def _is_running(key: str) -> bool:
     return proc is not None and proc.poll() is None
 
 
+_GATEWAY_URLS = {
+    "gateway-us":   _svc.get("gateways", {}).get("us",   os.getenv("GATEWAY_US_URL",   "http://localhost:8081")),
+    "gateway-eu":   _svc.get("gateways", {}).get("eu",   os.getenv("GATEWAY_EU_URL",   "http://localhost:8082")),
+    "gateway-asia": _svc.get("gateways", {}).get("asia", os.getenv("GATEWAY_ASIA_URL", "http://localhost:8083")),
+}
+
+
 def _docker_status() -> list[dict]:
-    """Return [{name, status}] for every running container via docker ps."""
+    """Return service-level health for the components shown in the dashboard.
+
+    We probe Redis instances + gateways + Prometheus directly instead of shelling
+    out to the docker CLI (which isn't installed inside the api container). The
+    response shape stays {name, status} so the dashboard's container-health pill
+    keeps working unchanged.
+    """
+    out: list[dict] = []
+
+    for region, cfg in REDIS_CONFIGS.items():
+        try:
+            redis.Redis(host=cfg["host"], port=cfg["port"], socket_connect_timeout=1, socket_timeout=1).ping()
+            out.append({"name": f"redis-{region}", "status": "ok"})
+        except Exception as exc:
+            out.append({"name": f"redis-{region}", "status": f"down: {exc}"})
+
+    for name, url in _GATEWAY_URLS.items():
+        try:
+            r = requests.get(f"{url.rstrip('/')}/health", timeout=1.5)
+            out.append({"name": name, "status": "ok" if r.ok else f"down: HTTP {r.status_code}"})
+        except Exception as exc:
+            out.append({"name": name, "status": f"down: {exc}"})
+
     try:
-        result = subprocess.run(
-            ["docker", "ps", "--format", "{{.Names}}\t{{.Status}}"],
-            capture_output=True, text=True, timeout=5,
-        )
-        containers = []
-        for line in result.stdout.strip().splitlines():
-            if "\t" in line:
-                name, status = line.split("\t", 1)
-                containers.append({"name": name.strip(), "status": status.strip()})
-        return containers
+        r = requests.get(f"{PROM_URL.rstrip('/')}/-/ready", timeout=1.5)
+        out.append({"name": "prometheus", "status": "ok" if r.ok else f"down: HTTP {r.status_code}"})
     except Exception as exc:
-        _ctrl_log.warning("docker ps failed: %s", exc)
-        return [{"name": "docker", "status": f"error: {exc}"}]
+        out.append({"name": "prometheus", "status": f"down: {exc}"})
+
+    return out
 
 
 # ── Control endpoints ─────────────────────────────────────────────────────────
+
+def _clear_overrides() -> dict[str, int]:
+    """Delete all override:* keys from every regional Redis. Returns per-region counts.
+
+    Overrides have their own multi-minute TTL and survive `FLUSHDB` on the rate-limit
+    counter keys, which causes prior-scenario abuser throttles to bleed into the next
+    scenario. Scrub them at scenario-start so each demo is isolated.
+    """
+    deleted: dict[str, int] = {}
+    for region in REDIS_CONFIGS:
+        try:
+            client = _redis_client(region)
+            keys = list(client.scan_iter(match="override:*", count=200))
+            deleted[region] = client.delete(*keys) if keys else 0
+        except Exception as exc:
+            _ctrl_log.warning("override scrub failed for %s: %s", region, exc)
+            deleted[region] = -1
+    return deleted
+
 
 @app.route("/api/control/scenario", methods=["POST"])
 def api_control_scenario():
@@ -410,6 +454,9 @@ def api_control_scenario():
             "message": f"Simulator already running (pid {_procs['simulator'].pid}). Stop it first.",
         }), 400
 
+    scrubbed = _clear_overrides()
+    _ctrl_log.info("scenario %s: scrubbed overrides %s", scenario, scrubbed)
+
     cmd = [sys.executable, str(SIMULATOR_SCRIPT), "scenario", scenario]
     _ctrl_log.info("START simulator: %s", " ".join(cmd))
     try:
@@ -422,7 +469,7 @@ def api_control_scenario():
         _procs["simulator"]    = proc
         _proc_started["simulator"] = time.time()
         _ctrl_log.info("simulator started pid=%d scenario=%s", proc.pid, scenario)
-        return jsonify({"status": "started", "pid": proc.pid, "scenario": scenario})
+        return jsonify({"status": "started", "pid": proc.pid, "scenario": scenario, "overrides_scrubbed": scrubbed})
     except Exception as exc:
         _ctrl_log.error("simulator start failed: %s", exc)
         return jsonify({"status": "error", "message": str(exc)}), 500

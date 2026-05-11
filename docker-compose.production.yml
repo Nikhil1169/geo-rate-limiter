@@ -145,12 +145,16 @@ services:
       - REDIS_US_HOST=redis-us
       - REDIS_US_PORT=6379
       - REDIS_EU_HOST=redis-eu
-      - REDIS_EU_PORT=6380
+      - REDIS_EU_PORT=6379
       - REDIS_ASIA_HOST=redis-asia
-      - REDIS_ASIA_PORT=6381
+      - REDIS_ASIA_PORT=6379
       - GATEWAY_US_URL=http://gateway-us:8080
       - GATEWAY_EU_URL=http://gateway-eu:8080
       - GATEWAY_ASIA_URL=http://gateway-asia:8080
+      - REDIS_US_ADDR=redis-us:6379
+      - REDIS_EU_ADDR=redis-eu:6379
+      - REDIS_ASIA_ADDR=redis-asia:6379
+      - PROM_URL=http://prometheus:9090
       - API_PORT=5001
       - CORS_ORIGINS=*
     depends_on:
