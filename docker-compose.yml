@@ -1,0 +1,170 @@
+services:
+  redis-us:
+    image: redis:7-alpine
+    container_name: redis-us
+    ports: ["6379:6379"]
+    command: ["redis-server", "--appendonly", "no"]
+
+  redis-eu:
+    image: redis:7-alpine
+    container_name: redis-eu
+    ports: ["6380:6379"]
+    command: ["redis-server", "--appendonly", "no"]
+
+  redis-asia:
+    image: redis:7-alpine
+    container_name: redis-asia
+    ports: ["6381:6379"]
+    command: ["redis-server", "--appendonly", "no"]
+
+  gateway-us:
+    build: ./gateway
+    container_name: gateway-us
+    ports: ["8081:8080"]
+    environment:
+      - REGION=us
+      - REDIS_ADDR=redis-us:6379
+      - GIN_MODE=release
+    depends_on: [redis-us]
+
+  gateway-eu:
+    build: ./gateway
+    container_name: gateway-eu
+    ports: ["8082:8080"]
+    environment:
+      - REGION=eu
+      - REDIS_ADDR=redis-eu:6379
+      - GIN_MODE=release
+    depends_on: [redis-eu]
+
+  gateway-asia:
+    build: ./gateway
+    container_name: gateway-asia
+    ports: ["8083:8080"]
+    environment:
+      - REGION=asia
+      - REDIS_ADDR=redis-asia:6379
+      - GIN_MODE=release
+    depends_on: [redis-asia]
+
+  sync-us:
+    build:
+      context: ./sync
+      dockerfile: Dockerfile
+    container_name: sync-us
+    environment:
+      REGION: us
+      LOCAL_REDIS_ADDR: redis-us:6379
+      PEER_REDIS_EU_ADDR: redis-eu:6379
+      PEER_REDIS_ASIA_ADDR: redis-asia:6379
+      ADMIN_PORT: "8001"
+      METRICS_PORT: "9101"
+      RECONCILE_INTERVAL_SEC: "30"
+    ports:
+      - "8011:8001"
+      - "9111:9101"
+    depends_on: [redis-us, redis-eu, redis-asia]
+    restart: on-failure
+
+  sync-eu:
+    build:
+      context: ./sync
+      dockerfile: Dockerfile
+    container_name: sync-eu
+    environment:
+      REGION: eu
+      LOCAL_REDIS_ADDR: redis-eu:6379
+      PEER_REDIS_US_ADDR: redis-us:6379
+      PEER_REDIS_ASIA_ADDR: redis-asia:6379
+      ADMIN_PORT: "8001"
+      METRICS_PORT: "9101"
+      RECONCILE_INTERVAL_SEC: "30"
+    ports:
+      - "8012:8001"
+      - "9112:9101"
+    depends_on: [redis-us, redis-eu, redis-asia]
+    restart: on-failure
+
+  sync-asia:
+    build:
+      context: ./sync
+      dockerfile: Dockerfile
+    container_name: sync-asia
+    environment:
+      REGION: asia
+      LOCAL_REDIS_ADDR: redis-asia:6379
+      PEER_REDIS_US_ADDR: redis-us:6379
+      PEER_REDIS_EU_ADDR: redis-eu:6379
+      ADMIN_PORT: "8001"
+      METRICS_PORT: "9101"
+      RECONCILE_INTERVAL_SEC: "30"
+    ports:
+      - "8013:8001"
+      - "9113:9101"
+    depends_on: [redis-us, redis-eu, redis-asia]
+    restart: on-failure
+
+  api:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    container_name: api
+    ports: ["5001:5001"]
+    environment:
+      PROMETHEUS_URL: http://prometheus:9090
+      PROM_URL: http://prometheus:9090
+      REDIS_US_HOST: redis-us
+      REDIS_US_PORT: "6379"
+      REDIS_EU_HOST: redis-eu
+      REDIS_EU_PORT: "6379"
+      REDIS_ASIA_HOST: redis-asia
+      REDIS_ASIA_PORT: "6379"
+      REDIS_US_ADDR: redis-us:6379
+      REDIS_EU_ADDR: redis-eu:6379
+      REDIS_ASIA_ADDR: redis-asia:6379
+      GATEWAY_US_URL: http://gateway-us:8080
+      GATEWAY_EU_URL: http://gateway-eu:8080
+      GATEWAY_ASIA_URL: http://gateway-asia:8080
+      API_PORT: "5001"
+      REPO_ROOT: "/repo"
+      LOG_PATH: "/repo/agent/decisions.jsonl"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/repo
+      - ./agent:/app/agent
+    command: ["sh", "-c", "rm -f /repo/agent/decisions.jsonl && python -m agent.api"]
+    depends_on: [redis-us, redis-eu, redis-asia, prometheus, gateway-us, gateway-eu, gateway-asia]
+    restart: on-failure
+
+  dashboard:
+    image: nginx:alpine
+    container_name: dashboard
+    ports: ["8080:80"]
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./dashboard.html:/usr/share/nginx/html/index.html:ro
+      - ./favicon.png:/usr/share/nginx/html/favicon.png:ro
+    depends_on: [api]
+    restart: on-failure
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: prometheus
+    ports: ["9090:9090"]
+    volumes:
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: grafana
+    ports: ["3000:3000"]
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning
+    depends_on: [prometheus]
+
+networks:
+  default:
+    name: georl_net
