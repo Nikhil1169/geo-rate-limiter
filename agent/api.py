@@ -517,15 +517,43 @@ def api_control_scenario():
     scrubbed = _clear_overrides()
     _ctrl_log.info("scenario %s: scrubbed overrides %s", scenario, scrubbed)
 
-    cmd = [sys.executable, str(SIMULATOR_SCRIPT), "scenario", scenario]
+    # global_quota_bypass is a self-contained demo, not a Poisson-stream scenario.
+    # It runs simulator/demo_global_quota.py and writes structured results to
+    # DEMO_RESULTS_PATH for the dashboard "Global Quota Bypass" panel to read.
+    extra_env = None
+    if scenario == "global_quota_bypass":
+        # Clear any prior results so the dashboard doesn't show stale data
+        # before the new run writes its first state.
+        try:
+            if DEMO_RESULTS_PATH.exists():
+                DEMO_RESULTS_PATH.unlink()
+        except Exception as exc:
+            _ctrl_log.warning("could not clear demo results: %s", exc)
+        cmd        = [sys.executable, str(DEMO_BYPASS_SCRIPT)]
+        log_handle = open(DEMO_LOG_PATH, "w")
+        stdout, stderr = log_handle, subprocess.STDOUT
+        # Pin the results path so the demo writes to the same file we read.
+        # The api container has both ./agent:/app/agent and .:/repo bind-mounted,
+        # so /app/agent and /repo/agent point at the same host directory — but
+        # being explicit avoids any future drift.
+        extra_env = {**os.environ, "DEMO_RESULTS_PATH": str(DEMO_RESULTS_PATH)}
+    else:
+        cmd        = [sys.executable, str(SIMULATOR_SCRIPT), "scenario", scenario]
+        log_handle = None
+        stdout, stderr = subprocess.DEVNULL, subprocess.DEVNULL
+
     _ctrl_log.info("START simulator: %s", " ".join(cmd))
     try:
         proc = subprocess.Popen(
             cmd,
             cwd=str(REPO_ROOT),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=stdout,
+            stderr=stderr,
+            env=extra_env,
         )
+        if log_handle is not None:
+            # Keep the file handle alive on the subprocess; Popen retains a ref.
+            log_handle.close()
         _procs["simulator"]    = proc
         _proc_started["simulator"] = time.time()
         global _scenario_started_ms, _scenario_active
@@ -654,11 +682,34 @@ def api_control_scenario_stop():
         _procs["simulator"] = None
         _proc_started.pop("simulator", None)
 
+        # Safety net: if global_quota_bypass was active and got killed before
+        # its in-process cleanup ran, re-seed policies so other scenarios
+        # don't run against the temporary limit=100 policy. seed_policies.py
+        # is idempotent — safe to call even if the demo restored cleanly.
+        global _scenario_active
+        policies_restored = False
+        if _scenario_active == "global_quota_bypass":
+            try:
+                subprocess.run(
+                    [sys.executable, str(SEED_SCRIPT), "--demo"],
+                    cwd=str(REPO_ROOT),
+                    capture_output=True, text=True, timeout=10,
+                )
+                policies_restored = True
+                _ctrl_log.info("global_quota_bypass stop: re-seeded baseline policies")
+            except Exception as exc:
+                _ctrl_log.warning("global_quota_bypass stop: policy re-seed failed: %s", exc)
+        _scenario_active = None
+
         scrubbed = _clear_overrides() if clear else {}
         if clear:
             _ctrl_log.info("simulator stop: scrubbed overrides %s", scrubbed)
 
-        return jsonify({"status": "stopped", "pid": pid, "overrides_scrubbed": scrubbed})
+        return jsonify({
+            "status": "stopped", "pid": pid,
+            "overrides_scrubbed": scrubbed,
+            "policies_restored":  policies_restored,
+        })
     except Exception as exc:
         _ctrl_log.error("simulator stop failed: %s", exc)
         return jsonify({"status": "error", "message": str(exc)}), 500
