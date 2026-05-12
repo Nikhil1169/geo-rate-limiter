@@ -1929,6 +1929,7 @@
       const [policiesOpen,  setPoliciesOpen]  = useState(false);
       const [modelMetrics,  setModelMetrics]  = useState(null);
       const [latencyData,   setLatencyData]   = useState(null);
+      const [demoResults,   setDemoResults]   = useState(null);
       const [lastActiveTs,  setLastActiveTs]  = useState(0);
 
       const openModal  = useCallback((chart) => setModal(chart), []);
@@ -1954,13 +1955,18 @@
         try { setLatencyData(await fetchLatency()); } catch {}
       }, []);
 
+      const loadDemo = useCallback(async () => {
+        try { setDemoResults(await fetchDemoResults()); } catch {}
+      }, []);
+
       useEffect(() => {
         load();        const i1 = setInterval(load,        REFRESH_MS);
         loadCtrl();    const i2 = setInterval(loadCtrl,    REFRESH_MS);
         loadModel();   const i3 = setInterval(loadModel,   REFRESH_MS);
         loadLatency(); const i4 = setInterval(loadLatency, REFRESH_MS);
-        return () => { clearInterval(i1); clearInterval(i2); clearInterval(i3); clearInterval(i4); };
-      }, [load, loadCtrl, loadModel, loadLatency]);
+        loadDemo();    const i5 = setInterval(loadDemo,    REFRESH_MS);
+        return () => { clearInterval(i1); clearInterval(i2); clearInterval(i3); clearInterval(i4); clearInterval(i5); };
+      }, [load, loadCtrl, loadModel, loadLatency, loadDemo]);
 
       const addLog = useCallback((msg, type='info') => {
         setLogs(p => [...p.slice(-49), { id:Date.now()+Math.random(), ts:Date.now(), msg, type }]);
@@ -2030,6 +2036,8 @@
                 <DecisionsFeed decisions={decisions} loading={loading}/>
                 <OverridesTable overrides={overrides} loading={loading}/>
               </div>
+
+              <BypassPanel data={demoResults} loading={loading}/>
 
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
                 <CounterChart counters={counters} loading={loading} onExpand={openModal}/>
