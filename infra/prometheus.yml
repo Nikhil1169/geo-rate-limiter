@@ -1,0 +1,23 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: gateways
+    static_configs:
+      - targets:
+          - gateway-us:8080
+          - gateway-eu:8080
+          - gateway-asia:8080
+
+  - job_name: sync-us
+    static_configs:
+      - targets: [sync-us:9101]
+
+  - job_name: sync-eu
+    static_configs:
+      - targets: [sync-eu:9101]
+
+  - job_name: sync-asia
+    static_configs:
+      - targets: [sync-asia:9101]
