@@ -101,8 +101,11 @@ REPO_ROOT = Path(os.getenv("REPO_ROOT", str(Path(__file__).parent.parent)))
 # Configurable paths — override via env vars if the layout ever changes
 SIMULATOR_SCRIPT = Path(os.getenv("SIMULATOR_SCRIPT", str(REPO_ROOT / "simulator" / "main.py")))
 SEED_SCRIPT      = Path(os.getenv("SEED_SCRIPT",      str(REPO_ROOT / "tools" / "seed_policies.py")))
+DEMO_BYPASS_SCRIPT = Path(os.getenv("DEMO_BYPASS_SCRIPT", str(REPO_ROOT / "simulator" / "demo_global_quota.py")))
+DEMO_RESULTS_PATH  = Path(os.getenv("DEMO_RESULTS_PATH",  str(Path(__file__).parent / "demo_results.json")))
+DEMO_LOG_PATH      = Path(os.getenv("DEMO_LOG_PATH",      str(Path(__file__).parent / "demo_global_quota.log")))
 
-VALID_SCENARIOS: frozenset[str] = frozenset({"noisy_neighbor", "product_launch", "global_steady", "region_failover"})
+VALID_SCENARIOS: frozenset[str] = frozenset({"noisy_neighbor", "product_launch", "global_steady", "region_failover", "global_quota_bypass"})
 
 # Subprocess handles — only one agent and one simulator run at a time
 _procs: dict[str, subprocess.Popen | None] = {"agent": None, "simulator": None}
@@ -405,6 +408,22 @@ def api_counters():
 @app.route("/api/health")
 def api_health():
     return jsonify({"status": "ok", "ts": int(time.time() * 1000)})
+
+
+@app.route("/api/demo/results")
+def api_demo_results():
+    """Return the latest demo_global_quota.py results (or an idle placeholder).
+
+    The demo script writes structured progress to DEMO_RESULTS_PATH as each
+    phase completes; the dashboard polls this endpoint to render the live
+    comparison panel.
+    """
+    try:
+        if DEMO_RESULTS_PATH.exists():
+            return jsonify(json.loads(DEMO_RESULTS_PATH.read_text()))
+    except Exception as exc:
+        return jsonify({"status": "error", "error": str(exc)}), 500
+    return jsonify({"status": "idle", "current_phase": None})
 
 
 # ── Control helpers ───────────────────────────────────────────────────────────
